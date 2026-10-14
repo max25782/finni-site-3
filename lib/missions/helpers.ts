@@ -30,8 +30,8 @@ export const choice = (
   ins: Insight,
   options: ChoiceOption[],
   skipIf?: (v: V) => boolean,
-  extra?: { open?: boolean }
-): ChoiceScene => ({ id, kind: "choice", icon, title, text, ...ins, options, skipIf, open: extra?.open });
+  extra?: { open?: boolean; reflect?: boolean }
+): ChoiceScene => ({ id, kind: "choice", icon, title, text, ...ins, options, skipIf, open: extra?.open, reflect: extra?.reflect });
 
 export const offline = (title: L, text: L, xp = 5): Scene => ({ id: "offline", kind: "offline", title, text, xp });
 export const end: Scene = { id: "end", kind: "end" };

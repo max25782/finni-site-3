@@ -10,10 +10,8 @@ import {
   configureAnalytics,
   hookMissionDone,
   hookMissionStart,
-  onPageHide,
-  onTabHidden,
-  onTabVisible,
-  startAnalyticsSession,
+  bootstrapAnalyticsSession,
+  ensureAnalyticsLifecycle,
 } from "./analytics";
 
 type Ctx = {
@@ -51,21 +49,16 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!ready) return;
     configureAnalytics({ lang: s.lang, ageGroup: s.ageGroup, consent: s.analyticsOn });
-    startAnalyticsSession();
-    const onVis = () => {
-      if (document.visibilityState === "hidden") onTabHidden();
-      else onTabVisible();
-    };
-    const onHidePage = (e: PageTransitionEvent) => {
-      onPageHide(e.persisted);
-    };
-    document.addEventListener("visibilitychange", onVis);
-    window.addEventListener("pagehide", onHidePage);
-    return () => {
-      document.removeEventListener("visibilitychange", onVis);
-      window.removeEventListener("pagehide", onHidePage);
-    };
   }, [ready, s.lang, s.ageGroup, s.analyticsOn]);
+
+  useEffect(() => {
+    if (!ready) return;
+    bootstrapAnalyticsSession();
+  }, [ready]);
+
+  useEffect(() => {
+    ensureAnalyticsLifecycle();
+  }, []);
 
   useEffect(() => {
     // до загрузки состояния не трогаем <html>: иначе дефолтный he на миг перебьёт ru из загрузочного скрипта

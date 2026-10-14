@@ -14,11 +14,14 @@ import { firstIndex, nextIndex, tx, V, Scene, L, Mission } from "@/lib/missions/
 import type { LogEntry } from "@/lib/game";
 import { BOOK_LABEL } from "@/lib/quests";
 import {
+  countWords,
   hookCalc,
   hookChoice,
   hookDebriefDone,
   hookHint,
   hookIdleStuck,
+  hookOfflineChoice,
+  hookOfflineFollowup,
   hookRating,
   hookReflection,
   hookSceneDone,
@@ -27,6 +30,12 @@ import {
   track,
   type ReasonId,
 } from "@/lib/analytics";
+import {
+  newReflectionRunState,
+  recordReflectionOutcome,
+  reflectionSceneIds,
+  shouldAskReflection,
+} from "@/lib/mission-reflect";
 
 type Result = { outcome: string; patch: Record<string, number>; xp: number; badge?: string; good?: boolean; c: number; a?: number[]; bonus?: number; mood?: "good" | "soft"; notes?: string[] };
 
@@ -90,7 +99,19 @@ const ui = {
   yourNum: L("Ты выбрал(а) число", "בחרתם מספר"),
   calcGood: L("Ты посчитал(а) верно", "חישבתם נכון"),
   calcTry: L("Расчёт получился не сразу, и это нормально: теперь ты знаешь, как считать.", "החישוב לא יצא מיד, וזה בסדר: עכשיו אתם יודעים איך מחשבים."),
+  offlineDo: L("Сделаю", "אעשה"),
+  offlineSkip: L("Не сегодня", "לא היום"),
+  offlineFollowup: L("Получилось сделать задание из прошлой миссии?", "הצלחתם לעשות את המשימה מהמשימה הקודמת?"),
+  offlineYes: L("Да", "כן"),
+  offlineNo: L("Нет", "לא"),
 };
+
+function sceneTextWords(scene: Scene, v: Record<string, number>, lang: "ru" | "he"): number {
+  if (!("text" in scene)) return 0;
+  const raw = scene.text;
+  if (!raw) return 0;
+  return countWords(tx(raw, v, lang));
+}
 
 const TOPIC = { money: "💰", people: "🤝", mind: "🧠" } as const;
 
@@ -178,15 +199,28 @@ const REASONS: { id: ReasonId; ru: string; he: string }[] = [
   { id: "cheaper", ru: "дешевле", he: "יותר זול" },
   { id: "needed", ru: "нужнее", he: "יותר נחוץ" },
   { id: "try", ru: "хочу попробовать", he: "רוצה לנסות" },
-  { id: "unknown", ru: "не знаю", he: "לא יודע" },
+  { id: "dont_know", ru: "не знаю", he: "לא יודע" },
 ];
 
-function ThinkPrompt({ mission, lang, askWhy }: { mission: Mission; lang: "ru" | "he"; askWhy?: boolean }) {
+function ThinkPrompt({
+  mission,
+  lang,
+  sceneId,
+  askWhy,
+  onReflectOutcome,
+}: {
+  mission: Mission;
+  lang: "ru" | "he";
+  sceneId?: string;
+  askWhy?: boolean;
+  onReflectOutcome?: (kind: "ans" | "skip") => void;
+}) {
   const [why, setWhy] = useState<"open" | "done">("open");
   useEffect(() => {
     if (mission.twist) hookTwistShown(mission.id);
   }, [mission.id, mission.twist]);
   if (!mission.reflection && !mission.twist) return null;
+  const sid = sceneId ?? "reflect";
   return (
     <div className="card" style={{ marginTop: 10 }}>
       {mission.reflection && <p>🤔 {mission.reflection[lang]}</p>}
@@ -198,7 +232,8 @@ function ThinkPrompt({ mission, lang, askWhy }: { mission: Mission; lang: "ru" |
               type="button"
               className="option"
               onClick={() => {
-                hookReflection(mission.id, r.id);
+                hookReflection(mission.id, sid, r.id);
+                onReflectOutcome?.("ans");
                 setWhy("done");
               }}
             >
@@ -209,7 +244,8 @@ function ThinkPrompt({ mission, lang, askWhy }: { mission: Mission; lang: "ru" |
             type="button"
             className="btn secondary"
             onClick={() => {
-              hookReflection(mission.id, null);
+              hookReflection(mission.id, sid, null);
+              onReflectOutcome?.("skip");
               setWhy("done");
             }}
           >
@@ -218,6 +254,32 @@ function ThinkPrompt({ mission, lang, askWhy }: { mission: Mission; lang: "ru" |
         </div>
       )}
       {mission.twist && <p className="muted">🔁 {mission.twist[lang]}</p>}
+    </div>
+  );
+}
+
+function OfflineFollowupCard({
+  lang,
+  missionId,
+  sceneId,
+  onDone,
+}: {
+  lang: "ru" | "he";
+  missionId: string;
+  sceneId: string;
+  onDone: () => void;
+}) {
+  return (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <p>🌿 {ui.offlineFollowup[lang]}</p>
+      <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+        <button type="button" className="btn" onClick={() => { hookOfflineFollowup(missionId, sceneId, "yes"); onDone(); }}>
+          {ui.offlineYes[lang]}
+        </button>
+        <button type="button" className="btn secondary" onClick={() => { hookOfflineFollowup(missionId, sceneId, "no"); onDone(); }}>
+          {ui.offlineNo[lang]}
+        </button>
+      </div>
     </div>
   );
 }
@@ -265,7 +327,7 @@ const LESSONS = [
 ];
 
 export default function MissionPage() {
-  const { s, lang, ready, startMission, advanceMission, finishMission, abandonMission, addBadge } = useGame();
+  const { s, lang, ready, update, startMission, advanceMission, finishMission, abandonMission, addBadge } = useGame();
   const [res, setRes] = useState<Result | null>(null);
   const [num, setNum] = useState<number>(0);
   const [wrong, setWrong] = useState(false);
@@ -279,6 +341,8 @@ export default function MissionPage() {
   const [slide, setSlide] = useState({ i: 0, n: 1 });
   const picks = useRef<number[]>([]);
   const softRun = useRef(0);
+  const reflectRun = useRef(newReflectionRunState());
+  const [choiceReflect, setChoiceReflect] = useState(false);
   const [celebrate, setCelebrate] = useState<null | { xp: number; balance: number; v: V; m: Mission }>(null);
 
   const run = s.run;
@@ -292,12 +356,13 @@ export default function MissionPage() {
     setNudge(null);
     setTries(0);
     setSlide({ i: 0, n: 1 });
+    setChoiceReflect(false);
     t0.current = Date.now();
     if (mission && scene && scene.kind === "input" && run) setNum(scene.initial(run.vars));
     if (scene && scene.kind === "find") setSel(scene.items.map(() => false));
     if (scene && scene.kind === "split" && run) setAlloc(scene.parts.map((p) => p.min ?? 0));
     if (mission && scene && run) {
-      hookSceneShown(mission.id, scene.id, scene.kind);
+      hookSceneShown(mission.id, scene.id, scene.kind, sceneTextWords(scene, run.vars, lang));
     }
   }, [run?.idx, run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -305,6 +370,7 @@ export default function MissionPage() {
     setCombo(0);
     picks.current = [];
     softRun.current = 0;
+    reflectRun.current = newReflectionRunState();
   }, [run?.id]);
 
   // Если ребёнок завис на сцене — idle_stuck, не hint_used. Скрытая вкладка не считается.
@@ -367,7 +433,6 @@ export default function MissionPage() {
             <br />⭐ {ui.xp[lang]}: <b>{celebrate.xp}</b>
           </p>
         </div>
-        <MissionRating missionId={m.id} lang={lang} />
         <ShareBox title={m.title[lang]} />
         {m.teaser && (
           <div className="card hero">
@@ -383,9 +448,19 @@ export default function MissionPage() {
   }
 
   // ---------- список ----------
+  const offlinePending = s.offlineFollowup && today > s.offlineFollowup.pledgedDay ? s.offlineFollowup : null;
+
   if (!run || !mission || !scene) {
     return (
       <>
+        {offlinePending && (
+          <OfflineFollowupCard
+            lang={lang}
+            missionId={offlinePending.missionId}
+            sceneId={offlinePending.sceneId}
+            onDone={() => update({ offlineFollowup: null })}
+          />
+        )}
         <h1>🗺️ {ui.season[lang]}</h1>
         <p className="muted">
           {ui.seasonNote[lang]} · {s.missionsDone.filter((id) => MISSIONS.some((m) => m.id === id)).length}/{MISSIONS.length}
@@ -435,8 +510,7 @@ export default function MissionPage() {
 
   const go = (patch: Record<string, number>, xp: number, badge?: string, c?: number, a?: number[]) => {
     if (badge) addBadge(badge);
-    const dur = Date.now() - t0.current;
-    hookSceneDone(mission.id, scene.id, scene.kind, dur);
+    hookSceneDone(mission.id, scene.id, scene.kind, sceneTextWords(scene, v, lang));
     const log: LogEntry | undefined = c === undefined ? undefined : { id: scene.id, c, v: { ...v }, ...(a ? { a } : {}) };
     advanceMission(idx, nextIndex(mission.scenes, idx, { ...v, ...patch }), patch, xp, log);
   };
@@ -547,9 +621,29 @@ export default function MissionPage() {
           <>
             <p className="scenario">{tx(scene.text, v, lang)}</p>
             <Hook />
-            <button className="btn" onClick={() => go(patch, scene.xp ?? 0)}>
-              {ui.next[lang]}
-            </button>
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <button
+                className="btn"
+                onClick={() => {
+                  hookOfflineChoice(mission.id, scene.id, "do");
+                  update({
+                    offlineFollowup: { missionId: mission.id, sceneId: scene.id, pledgedDay: todayKey() },
+                  });
+                  go(patch, scene.xp ?? 0);
+                }}
+              >
+                {ui.offlineDo[lang]}
+              </button>
+              <button
+                className="btn secondary"
+                onClick={() => {
+                  hookOfflineChoice(mission.id, scene.id, "skip");
+                  go(patch, scene.xp ?? 0);
+                }}
+              >
+                {ui.offlineSkip[lang]}
+              </button>
+            </div>
           </>
         ) : (
           <>
@@ -563,7 +657,15 @@ export default function MissionPage() {
     body = res ? (
       <>
         <ResultBox r={res} />
-        <ThinkPrompt mission={mission} lang={lang} askWhy />
+        <ThinkPrompt
+          mission={mission}
+          lang={lang}
+          sceneId={scene.id}
+          askWhy={choiceReflect}
+          onReflectOutcome={(kind) => {
+            reflectRun.current = recordReflectionOutcome(reflectRun.current, kind);
+          }}
+        />
         <Hook />
         <button className="btn" onClick={() => go(res.patch, res.xp + (res.bonus ?? 0), res.badge, res.c)}>
           {ui.next[lang]}
@@ -592,6 +694,14 @@ export default function MissionPage() {
                 else if (longText && Date.now() - t0.current < 2500) setNudge(nudgePick(FAST, lang, idx));
                 sfx(bonus >= 5 && good ? "combo" : good ? "good" : "soft");
                 hookChoice(mission.id, scene.id, `c${i}`);
+                const choiceMs = Date.now() - t0.current;
+                const slots = reflectionSceneIds(mission);
+                let showWhy = shouldAskReflection(reflectRun.current, scene.id, slots);
+                if (showWhy && choiceMs < 3000) {
+                  reflectRun.current = recordReflectionOutcome(reflectRun.current, "fast");
+                  showWhy = false;
+                }
+                setChoiceReflect(showWhy);
                 setRes({ outcome: r.outcome[lang], patch: clean(r.vars), xp: r.xp, badge: r.badge, c: i, bonus, mood: good ? "good" : "soft" });
               }}
             >
@@ -622,7 +732,9 @@ export default function MissionPage() {
             disabled={Number.isNaN(num)}
             onClick={() => {
               const good = num === scene.answer(v);
+              const msShown = Date.now() - t0.current;
               if (!good && tries < 2) {
+                hookCalc(mission.id, scene.id, false, tries + 1, msShown);
                 setTries(tries + 1);
                 setNudge(nudgePick(CALC_LADDER[tries], lang, idx + tries));
                 hookHint(mission.id, scene.id, "calc", tries + 1);
@@ -631,7 +743,7 @@ export default function MissionPage() {
               }
               setNudge(null);
               setWrong(!good);
-              hookCalc(mission.id, scene.id, good, tries + 1);
+              hookCalc(mission.id, scene.id, good, tries + 1, msShown);
               const bonus = comboStep(good);
               sfx(good ? (bonus ? "combo" : "good") : "soft");
               setRes({
@@ -824,6 +936,7 @@ export default function MissionPage() {
           <p>💰 {mission.takeaways.money[lang]}</p>
           <p>🤝 {mission.takeaways.people[lang]}</p>
         </div>
+        <MissionRating missionId={mission.id} lang={lang} />
         <button
           className="btn"
           onClick={() => {
@@ -840,6 +953,14 @@ export default function MissionPage() {
 
   return (
     <div className="card">
+      {offlinePending && (
+        <OfflineFollowupCard
+          lang={lang}
+          missionId={offlinePending.missionId}
+          sceneId={offlinePending.sceneId}
+          onDone={() => update({ offlineFollowup: null })}
+        />
+      )}
       {breakOpen && <BreakOverlay lang={lang} onClose={() => { track("break_accepted", { mission_id: mission.id, scene_id: scene.id }); setBreakOpen(false); }} />}
       <Head />
       {body}

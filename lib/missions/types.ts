@@ -38,6 +38,8 @@ export type ChoiceScene = Base & Insight & {
   options: ChoiceOption[];
   /** Несколько разумных вариантов, без одного «правильного». */
   open?: boolean;
+  /** Ключевой выбор: после него можно спросить «почему» (макс. 3 за миссию). */
+  reflect?: boolean;
 };
 
 export type CalcScene = Base & Insight & {

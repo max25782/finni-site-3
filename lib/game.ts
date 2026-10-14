@@ -63,6 +63,8 @@ export type GameState = {
   playedToday: { day: string; sec: number; extra?: boolean };
   analyticsOn: boolean;
   ageGroup: "7-9" | "10-11" | "12-14" | "unknown";
+  /** Обещание выполнить offline-сцену; followup на следующий день. */
+  offlineFollowup: { missionId: string; sceneId: string; pledgedDay: string } | null;
 };
 
 export type MissionRun = {
@@ -136,6 +138,7 @@ export const DEFAULT_STATE: GameState = {
   playedToday: { day: "", sec: 0 },
   analyticsOn: false,
   ageGroup: "unknown",
+  offlineFollowup: null,
 };
 
 export const LEVELS = [
@@ -213,6 +216,14 @@ export function normalizeGameSnapshot(sv: Record<string, unknown>, real: RealSta
     analyticsOn: sv.analyticsOn === true,
     ageGroup: sv.ageGroup === "7-9" || sv.ageGroup === "12-14" || sv.ageGroup === "10-11" ? (sv.ageGroup as GameState["ageGroup"]) : "unknown",
     unlockedUpTo: unlockN,
+    offlineFollowup:
+      sv.offlineFollowup && typeof sv.offlineFollowup === "object" && typeof (sv.offlineFollowup as { pledgedDay?: string }).pledgedDay === "string"
+        ? {
+            missionId: String((sv.offlineFollowup as { missionId?: string }).missionId ?? ""),
+            sceneId: String((sv.offlineFollowup as { sceneId?: string }).sceneId ?? ""),
+            pledgedDay: String((sv.offlineFollowup as { pledgedDay?: string }).pledgedDay),
+          }
+        : null,
   };
 }
 

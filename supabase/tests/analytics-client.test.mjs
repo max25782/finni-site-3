@@ -22,9 +22,15 @@ globalThis.window = {
   matchMedia: () => ({ matches: false }),
   innerWidth: 1024,
 };
+let uuidSeq = 0;
 if (!globalThis.crypto?.randomUUID) {
   Object.defineProperty(globalThis, "crypto", {
-    value: { randomUUID: () => "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" },
+    value: {
+      randomUUID: () => {
+        uuidSeq += 1;
+        return `aaaaaaaa-bbbb-cccc-dddd-${String(uuidSeq).padStart(12, "0")}`;
+      },
+    },
   });
 }
 
@@ -49,6 +55,12 @@ const {
   setAnalyticsNow,
   advanceAnalyticsNow,
   resetAnalyticsState,
+  bootstrapAnalyticsSession,
+  endAnalyticsSession,
+  hookCalc,
+  SESSION_IDLE_MS,
+  getAnalyticsSessionIdForTest,
+  countWords,
   EVENT_NAMES,
   PROP_KEYS,
   BUF_KEY,
@@ -173,9 +185,11 @@ if (names.join(",") !== expect.join(",")) {
 } else console.log("ok хуки миссии");
 
 const dumped = JSON.parse(localStorage.getItem(BUF_KEY));
-if (!dumped[0].props.mission_id || dumped.some((e) => e.props.reason_id && e.props.reason_id !== "cheaper")) {
-  fail("reason_id / mission_id");
+const refl = dumped.find((e) => e.name === "reflection_answered");
+if (!dumped[0].props.mission_id || !refl || refl.props.reason_id !== "cheaper" || refl.props.scene_id !== "pick") {
+  fail("reflection scene_id / reason_id");
 }
+if (countWords("one two  three") !== 3) fail("countWords");
 
 clearEvents();
 if (readBuffer().length !== 0) fail("clearEvents");
@@ -228,6 +242,64 @@ if (!split.some((e) => e.name === "hint_used" && e.props.attempt === 1)) fail("�
 if (split.some((e) => e.name === "idle_stuck" && e.props.attempt != null)) fail("idle_stuck не должен нести attempt");
 if (split.filter((e) => e.name === "hint_used" || e.name === "idle_stuck").length !== 2) fail("idle и hint должны быть двумя событиями");
 else console.log("ok idle_stuck и hint_used раздельно");
+
+// сессия: двойной bootstrap → один session_started и один session_id
+clearEvents();
+resetAnalyticsState();
+setAnalyticsNow(5_000_000);
+bootstrapAnalyticsSession();
+const sidBoot = readBuffer().find((e) => e.name === "session_started")?.session_id;
+bootstrapAnalyticsSession();
+bootstrapAnalyticsSession();
+const startsBoot = readBuffer().filter((e) => e.name === "session_started");
+if (startsBoot.length !== 1) fail("двойной bootstrap дал " + startsBoot.length + " session_started");
+else if (getAnalyticsSessionIdForTest() !== sidBoot) fail("session id mem");
+else console.log("ok singleton bootstrap");
+
+// 30+ мин простоя → новый session_id, duration ≈ active + hidden
+clearEvents();
+resetAnalyticsState();
+setAnalyticsNow(6_000_000);
+bootstrapAnalyticsSession();
+const sidOld = readBuffer().find((e) => e.name === "session_started")?.session_id;
+advanceAnalyticsNow(SESSION_IDLE_MS + 1000);
+track("limit_hit");
+const endedIdle = readBuffer().find((e) => e.name === "session_ended");
+const startsIdle = readBuffer().filter((e) => e.name === "session_started");
+if (!endedIdle || endedIdle.session_id !== sidOld) fail("session_ended после idle");
+if (startsIdle.length !== 2 || startsIdle[1].session_id === sidOld) fail("новый session_id после idle");
+const dm = endedIdle.props.duration_ms;
+const am = endedIdle.props.active_ms;
+const hm = endedIdle.props.hidden_ms;
+if (typeof dm !== "number" || Math.abs(dm - (am + hm)) > 2) fail("duration_ms ≠ active+hidden: " + dm + " vs " + (am + hm));
+else console.log("ok idle rotation session");
+
+// session_ended с накопленным hidden
+clearEvents();
+resetAnalyticsState();
+setAnalyticsNow(7_000_000);
+bootstrapAnalyticsSession();
+advanceAnalyticsNow(1000);
+onTabHidden();
+advanceAnalyticsNow(5000);
+onTabVisible();
+advanceAnalyticsNow(10000);
+endAnalyticsSession();
+const se = readBuffer().find((e) => e.name === "session_ended");
+if (!se) fail("нет session_ended");
+else if (se.props.hidden_ms !== 5000 || se.props.active_ms !== 11000) fail("session active/hidden: " + JSON.stringify(se.props));
+else if (se.props.duration_ms !== 16000) fail("session duration_ms");
+else console.log("ok session_ended hidden+active");
+
+// calculation_answered на каждую попытку
+clearEvents();
+resetAnalyticsState();
+setAnalyticsNow(8_000_000);
+hookCalc("bracelets", "sum", false, 1, 1200);
+hookCalc("bracelets", "sum", true, 2, 3400);
+const calcs = readBuffer().filter((e) => e.name === "calculation_answered");
+if (calcs.length !== 2 || !calcs.every((e) => e.props.ms_since_shown != null)) fail("calc attempts");
+else console.log("ok calc per attempt");
 
 resetAnalyticsState();
 console.log(process.exitCode ? "FAIL client" : "analytics client tests ok");

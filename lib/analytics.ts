@@ -32,6 +32,8 @@ export const EVENT_NAMES = [
   "break_accepted",
   "share_clicked",
   "unlock_by_parent",
+  "offline_choice",
+  "offline_followup",
 ] as const;
 
 export type EventName = (typeof EVENT_NAMES)[number];
@@ -56,9 +58,11 @@ export const PROP_KEYS = [
   "rating",
   "reason_id",
   "mission_index",
+  "text_words",
+  "ms_since_shown",
 ] as const;
 
-export const REASON_IDS = ["cheaper", "needed", "try", "unknown"] as const;
+export const REASON_IDS = ["cheaper", "needed", "try", "dont_know"] as const;
 export type ReasonId = (typeof REASON_IDS)[number];
 
 export const CODE_RE = /^[a-z0-9_.-]{1,40}$/;
@@ -112,6 +116,16 @@ let sceneHiddenMs = 0;
 let runHook: RunHook | null = null;
 let twistSeen = false;
 let hideTimer: number | null = null;
+let sessionIdMem: string | null = null;
+let sessionOpen = false;
+let sessionBootstrapped = false;
+let lifecycleInited = false;
+
+export function countWords(text: string): number {
+  const t = text.trim();
+  if (!t) return 0;
+  return t.split(/\s+/).filter(Boolean).length;
+}
 
 export function configureAnalytics(next: Partial<AnalyticsCtx>) {
   ctx = { ...ctx, ...next };
@@ -135,6 +149,10 @@ export function resetAnalyticsState() {
   sceneHiddenMs = 0;
   runHook = null;
   twistSeen = false;
+  sessionIdMem = null;
+  sessionOpen = false;
+  sessionBootstrapped = false;
+  lifecycleInited = false;
   clock = null;
   if (hideTimer != null) {
     try {
@@ -148,26 +166,50 @@ export function resetAnalyticsState() {
     sessionStorage.removeItem(SESS_START);
     sessionStorage.removeItem(SESS_LAST);
     sessionStorage.removeItem(SESS_HID);
+    sessionStorage.removeItem(SID_KEY);
   } catch {
     /* */
   }
+}
+
+export function getAnalyticsSessionIdForTest(): string | null {
+  return sessionIdMem;
 }
 
 function now(): number {
   return clock ?? Date.now();
 }
 
-function sid(): string {
+function mintSid(): string {
   try {
-    let id = sessionStorage.getItem(SID_KEY);
-    if (id && CODE_RE.test(id) && id.length >= 8) return id;
-    id = (crypto.randomUUID?.() ?? `s${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`).replace(/-/g, "").slice(0, 32);
+    let id = (crypto.randomUUID?.() ?? `s${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`)
+      .replace(/-/g, "")
+      .slice(0, 32);
     if (!CODE_RE.test(id)) id = `s${Date.now().toString(36)}`;
+    sessionIdMem = id;
     sessionStorage.setItem(SID_KEY, id);
     return id;
   } catch {
-    return "sess_offline";
+    sessionIdMem = "sess_offline";
+    return sessionIdMem;
   }
+}
+
+function restoreSidFromStorage() {
+  if (sessionIdMem && CODE_RE.test(sessionIdMem)) return;
+  try {
+    const id = sessionStorage.getItem(SID_KEY);
+    if (id && CODE_RE.test(id) && id.length >= 8) sessionIdMem = id;
+  } catch {
+    /* */
+  }
+}
+
+function currentSid(): string {
+  if (sessionIdMem && CODE_RE.test(sessionIdMem)) return sessionIdMem;
+  restoreSidFromStorage();
+  if (sessionIdMem && CODE_RE.test(sessionIdMem)) return sessionIdMem;
+  return mintSid();
 }
 
 function deviceClass(): "mobile" | "desktop" {
@@ -269,7 +311,7 @@ function writeEvent(name: EventName, props?: Record<string, unknown>) {
     name,
     props: commonProps(props),
     ts: new Date(now()).toISOString(),
-    session_id: sid(),
+    session_id: currentSid(),
     app_version: APP_VERSION,
   };
   const buf = loadBuf();
@@ -287,8 +329,10 @@ function rotateSessionIfIdle() {
 }
 
 function beginSessionInternal() {
+  mintSid();
   sessionStartedAt = now();
   sessionHiddenMs = 0;
+  sessionOpen = true;
   writeEvent("session_started");
 }
 
@@ -297,9 +341,11 @@ function endSessionInternal() {
   const at = now();
   const hidden_ms = openHiddenMs(sessionHiddenMs, at);
   const active_ms = activeOf(sessionStartedAt, sessionHiddenMs, at);
+  const duration_ms = active_ms + hidden_ms;
   sessionStartedAt = 0;
   sessionHiddenMs = 0;
-  writeEvent("session_ended", { duration_ms: active_ms, active_ms, hidden_ms });
+  sessionOpen = false;
+  writeEvent("session_ended", { duration_ms, active_ms, hidden_ms });
 }
 
 export function track(name: string, props?: Record<string, unknown>) {
@@ -354,15 +400,42 @@ export async function syncEvents(): Promise<{ sent: number; reason: "no_cloud" }
   }
 }
 
-export function startAnalyticsSession() {
+/** Один раз на вкладку: восстановить или начать сессию. Повторные вызовы — no-op. */
+export function bootstrapAnalyticsSession() {
   try {
     restoreSess();
-    if (sessionStartedAt && lastEventAt && now() - lastEventAt < SESSION_IDLE_MS) return;
+    restoreSidFromStorage();
+    if (sessionBootstrapped) return;
+    sessionBootstrapped = true;
+    if (sessionStartedAt && lastEventAt && now() - lastEventAt < SESSION_IDLE_MS) {
+      sessionOpen = true;
+      return;
+    }
     if (sessionStartedAt) endSessionInternal();
     beginSessionInternal();
   } catch {
     /* */
   }
+}
+
+export function startAnalyticsSession() {
+  bootstrapAnalyticsSession();
+}
+
+/** Слушатели visibility/pagehide — один раз на вкладку (StrictMode-safe). */
+export function ensureAnalyticsLifecycle() {
+  if (lifecycleInited) return;
+  lifecycleInited = true;
+  if (typeof document === "undefined" || typeof window === "undefined") return;
+  const onVis = () => {
+    if (document.visibilityState === "hidden") onTabHidden();
+    else onTabVisible();
+  };
+  const onHidePage = (e: PageTransitionEvent) => {
+    onPageHide(e.persisted);
+  };
+  document.addEventListener("visibilitychange", onVis);
+  window.addEventListener("pagehide", onHidePage);
 }
 
 export function endAnalyticsSession() {
@@ -484,9 +557,11 @@ export function hookMissionStart(missionId: string, isNext: boolean) {
   }
 }
 
-export function hookSceneShown(missionId: string, sceneId: string, sceneKind: string) {
+export function hookSceneShown(missionId: string, sceneId: string, sceneKind: string, textWords?: number) {
   try {
-    writeEvent("scene_shown", { mission_id: missionId, scene_id: sceneId, scene_kind: sceneKind });
+    const extra: Record<string, unknown> = { mission_id: missionId, scene_id: sceneId, scene_kind: sceneKind };
+    if (typeof textWords === "number" && Number.isFinite(textWords)) extra.text_words = Math.max(0, Math.round(textWords));
+    writeEvent("scene_shown", extra);
     sceneStartedAt = now();
     sceneHiddenMs = 0;
     const hook = currentRunHook();
@@ -502,7 +577,7 @@ export function hookSceneShown(missionId: string, sceneId: string, sceneKind: st
   }
 }
 
-export function hookSceneDone(missionId: string, sceneId: string, sceneKind: string, _wallMs?: number) {
+export function hookSceneDone(missionId: string, sceneId: string, sceneKind: string, textWords?: number) {
   try {
     const at = now();
     const started = sceneStartedAt || at;
@@ -510,14 +585,16 @@ export function hookSceneDone(missionId: string, sceneId: string, sceneKind: str
     const active_ms = Math.max(0, at - started - hidden_ms);
     sceneStartedAt = 0;
     sceneHiddenMs = 0;
-    writeEvent("scene_completed", {
+    const extra: Record<string, unknown> = {
       mission_id: missionId,
       scene_id: sceneId,
       scene_kind: sceneKind,
       duration_ms: active_ms,
       active_ms,
       hidden_ms,
-    });
+    };
+    if (typeof textWords === "number" && Number.isFinite(textWords)) extra.text_words = Math.max(0, Math.round(textWords));
+    writeEvent("scene_completed", extra);
     if (active_ms < 2000) {
       writeEvent("scene_skipped_fast", {
         mission_id: missionId,
@@ -537,14 +614,18 @@ export function hookChoice(missionId: string, sceneId: string, choiceId: string)
   track("choice_selected", { mission_id: missionId, scene_id: sceneId, scene_kind: "choice", choice_id: choiceId });
 }
 
-export function hookCalc(missionId: string, sceneId: string, correct: boolean, attempt: number) {
-  track("calculation_answered", {
+export function hookCalc(missionId: string, sceneId: string, correct: boolean, attempt: number, msSinceShown?: number) {
+  const extra: Record<string, unknown> = {
     mission_id: missionId,
     scene_id: sceneId,
     scene_kind: "calc",
     correct,
     attempt,
-  });
+  };
+  if (typeof msSinceShown === "number" && Number.isFinite(msSinceShown)) {
+    extra.ms_since_shown = Math.max(0, Math.round(msSinceShown));
+  }
+  track("calculation_answered", extra);
 }
 
 export function hookIdleStuck(missionId: string, sceneId: string, sceneKind: string) {
@@ -555,12 +636,21 @@ export function hookHint(missionId: string, sceneId: string, sceneKind: string, 
   track("hint_used", { mission_id: missionId, scene_id: sceneId, scene_kind: sceneKind, attempt });
 }
 
-export function hookReflection(missionId: string, reasonId: ReasonId | null) {
+export function hookReflection(missionId: string, sceneId: string, reasonId: ReasonId | null) {
+  const base = { mission_id: missionId, scene_id: sceneId };
   if (reasonId && REASON_IDS.includes(reasonId)) {
-    track("reflection_answered", { mission_id: missionId, reason_id: reasonId });
+    track("reflection_answered", { ...base, reason_id: reasonId });
     return;
   }
-  track("reflection_skipped", { mission_id: missionId });
+  track("reflection_skipped", base);
+}
+
+export function hookOfflineChoice(missionId: string, sceneId: string, choice: "do" | "skip") {
+  track("offline_choice", { mission_id: missionId, scene_id: sceneId, scene_kind: "offline", choice_id: choice });
+}
+
+export function hookOfflineFollowup(missionId: string, sceneId: string, result: "yes" | "no") {
+  track("offline_followup", { mission_id: missionId, scene_id: sceneId, scene_kind: "offline", choice_id: result });
 }
 
 export function hookTwistShown(missionId: string) {
@@ -602,14 +692,14 @@ export function replayMissionHooks(missionId: string) {
   hookSceneDone(missionId, "intro", "story");
   hookSceneShown(missionId, "pick", "choice");
   hookChoice(missionId, "pick", "c0");
-  hookReflection(missionId, "cheaper");
+  hookReflection(missionId, "pick", "cheaper");
   hookTwistShown(missionId);
   advanceAnalyticsNow(4500);
   hookSceneDone(missionId, "pick", "choice");
   hookSceneShown(missionId, "sum", "calc");
   hookIdleStuck(missionId, "sum", "calc");
   hookHint(missionId, "sum", "calc", 2);
-  hookCalc(missionId, "sum", true, 2);
+  hookCalc(missionId, "sum", true, 2, 4000);
   advanceAnalyticsNow(9000);
   hookSceneDone(missionId, "sum", "calc");
   hookSceneShown(missionId, "end", "end");
