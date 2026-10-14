@@ -1,10 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useGame } from "@/lib/store";
+import { MISSIONS as SEASON_MISSIONS } from "@/lib/missions";
 import LangSwitch from "@/components/LangSwitch";
 import ParentGate from "@/components/ParentGate";
 import ParentMoney from "@/components/ParentMoney";
+import { CloudAuth } from "@/components/CloudAuth";
+import { todayKey, type Lang } from "@/lib/game";
+import { CHARGE_COPY, idsToday, tx, weekDayKeys } from "@/lib/wellbeing";
+import { cloudOnline, familyEraseCloud, familyPrefsSet } from "@/lib/cloud";
+import { clearEvents, downloadAnalyticsJson, track } from "@/lib/analytics";
+import type { AgeGroup } from "@/lib/analytics";
+import { downloadProgressJson, mergeProgressImport, parseProgressImport } from "@/lib/progress";
 
 const MISSIONS = {
   ru: [
@@ -53,8 +61,9 @@ export default function ParentsPage() {
 }
 
 function ParentsInner() {
-  const { s, lang, t, ready, update, reset } = useGame();
+  const { s, lang, t, ready, update, mutate, reset } = useGame();
   const [name, setName] = useState<string | null>(null);
+  const progressInputRef = useRef<HTMLInputElement>(null);
   // настроена ли облачная озвучка на сервере (ключ не раскрывается)
   const [ttsCfg, setTtsCfg] = useState(false);
 
@@ -76,7 +85,148 @@ function ParentsInner() {
     <>
       <h1>👪 {t("parentsTitle")}</h1>
 
+      <CloudAuth />
       <ParentMoney />
+
+      <div className="card">
+        <h2>🎯 {lang === "he" ? "משימות" : "Миссии"}</h2>
+        <p className="muted">
+          {lang === "he"
+            ? "פותח גישה בלבד — לא מסמן משימה כהושלמה, בלי XP, תגים או ₪ משחקיים."
+            : "Только снимает блокировку — миссия не считается пройденной, XP, бейджи и игровые ₪ не начисляются."}
+        </p>
+        <label htmlFor="munl">{lang === "he" ? "לפתוח משימות עד מס׳" : "Открыть миссии до №"}</label>
+        <select
+          id="munl"
+          value={String(s.unlockedUpTo)}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (n === s.unlockedUpTo) return;
+            update({ unlockedUpTo: n });
+            track("unlock_by_parent", { mission_index: n });
+          }}
+        >
+          <option value="0">{lang === "he" ? "ברירת מחדל (לפי הסדר)" : "По умолчанию (по порядку)"}</option>
+          {SEASON_MISSIONS.map((m, i) => (
+            <option key={m.id} value={String(i + 1)}>
+              {i + 1}. {m.title[lang]}
+            </option>
+          ))}
+        </select>
+        <p style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => {
+              if (s.unlockedUpTo === 0) return;
+              update({ unlockedUpTo: 0 });
+              track("unlock_by_parent", { mission_index: 0 });
+            }}
+          >
+            {lang === "he" ? "איפוס" : "Сбросить"}
+          </button>
+        </p>
+      </div>
+
+      <div className="card">
+        <h2>📊 {lang === "he" ? "נתוני המשחק" : "Данные игры"}</h2>
+        <label htmlFor="anl">{lang === "he" ? "לעזור לשפר את פיני (סטטיסטיקה אנונימית)" : "Помогать улучшать Финни (анонимная статистика)"}</label>
+        <select
+          id="anl"
+          value={s.analyticsOn ? "1" : "0"}
+          onChange={(e) => {
+            const analyticsOn = e.target.value === "1";
+            update({ analyticsOn });
+            if (s.ageGroup !== "unknown") void familyPrefsSet({ analyticsOn, ageGroup: s.ageGroup });
+          }}
+        >
+          <option value="0">{lang === "he" ? "כבוי (ברירת מחדל)" : "Выкл. (по умолчанию)"}</option>
+          <option value="1">{lang === "he" ? "מופעל" : "Вкл."}</option>
+        </select>
+        <label htmlFor="agg">{lang === "he" ? "קבוצת גיל (בלי תאריך לידה)" : "Возрастная группа (без даты рождения)"}</label>
+        <select
+          id="agg"
+          value={s.ageGroup}
+          onChange={(e) => {
+            const ageGroup = e.target.value as AgeGroup | "unknown";
+            const age = ageGroup === "7-9" ? 8 : ageGroup === "12-14" ? 13 : ageGroup === "10-11" ? 11 : s.age;
+            update({ ageGroup, age });
+            if (ageGroup !== "unknown") void familyPrefsSet({ analyticsOn: s.analyticsOn, ageGroup });
+          }}
+        >
+          <option value="unknown">{lang === "he" ? "לא הוגדר" : "Не задана"}</option>
+          <option value="7-9">7–9</option>
+          <option value="10-11">10–11</option>
+          <option value="12-14">12–14</option>
+        </select>
+        <p className="muted" style={{ marginTop: 8 }}>
+          {lang === "he"
+            ? "נרשם: אילו סצנות נפתחו, איזה כפתור נבחר, כמה זמן לקח. לא נרשם: טקסטים, שמות, תוכן צ׳אט. בלי הסכמה ובלי ענן המשפחה הכול נשאר במכשיר."
+            : "Записывается: какие сцены открыты, какой ответ выбран, сколько времени заняло. Не записывается: тексты, имена, чат. Без согласия и без семьи в облаке всё остаётся на устройстве."}{" "}
+          <a href="/privacy">{lang === "he" ? "מדיניות פרטיות" : "Политика конфиденциальности"}</a>
+        </p>
+        <p className="muted" style={{ marginTop: 10 }}>
+          {lang === "he"
+            ? "ייצוא/ייבוא התקדמות: XP, משימות, הגדרות. בלי יומן כסף אמיתי (ייצוא נפרד) ובלי אירועי אנליטיקה."
+            : "Экспорт/импорт прогресса: XP, миссии, настройки. Без журнала реальных денег (отдельный экспорт) и без событий аналитики."}
+        </p>
+        <p className="row" style={{ marginTop: 12, gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn secondary" onClick={() => downloadProgressJson(s)}>
+            {lang === "he" ? "ייצוא התקדמות (JSON)" : "Выгрузить прогресс (JSON)"}
+          </button>
+          <button type="button" className="btn secondary" onClick={() => progressInputRef.current?.click()}>
+            {lang === "he" ? "טעינת התקדמות (JSON)" : "Загрузить прогресс (JSON)"}
+          </button>
+          <input
+            ref={progressInputRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = () => {
+                const text = typeof reader.result === "string" ? reader.result : "";
+                const parsed = parseProgressImport(text, s.real);
+                if (parsed.ok === false) {
+                  const msg =
+                    parsed.reason === "version"
+                      ? lang === "he"
+                        ? "גרסת הקובץ לא מתאימה."
+                        : "Неверная версия файла."
+                      : lang === "he"
+                        ? "הקובץ פגום או לא מתאים."
+                        : "Файл повреждён или не подходит.";
+                  alert(msg);
+                  return;
+                }
+                const ok = lang === "he"
+                  ? confirm("ההתקדמות במכשיר הזה תוחלף. יומן הכסף האמיתי נשאר כאן. להמשיך?")
+                  : confirm("Текущий прогресс на этом устройстве будет заменён. Журнал реальных денег останется здесь. Продолжить?");
+                if (!ok) return;
+                const imported = parsed.state;
+                mutate((p) => mergeProgressImport(p, imported));
+              };
+              reader.readAsText(file);
+            }}
+          />
+          <button type="button" className="btn secondary" onClick={() => downloadAnalyticsJson()}>
+            {lang === "he" ? "ייצוא אירועים (JSON)" : "Выгрузить события (JSON)"}
+          </button>
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => {
+              const ok = lang === "he" ? confirm("למחוק את אירועי המכשיר?") : confirm("Очистить события на этом устройстве?");
+              if (ok) clearEvents();
+            }}
+          >
+            {lang === "he" ? "ניקוי אירועים" : "Очистить события"}
+          </button>
+        </p>
+      </div>
 
       <div className="card">
         <h2>⚙️ {t("settings")}</h2>
@@ -195,6 +345,46 @@ function ParentsInner() {
         </select>
         <label>{t("langLabel")}</label>
         <LangSwitch />
+
+        <h3 style={{ marginTop: 22 }}>🔋 {tx(CHARGE_COPY.title, lang)}</h3>
+        <label htmlFor="ch">{lang === "he" ? "בלוק טעינה" : "Блок Заряд"}</label>
+        <select id="ch" value={s.chargeOn ? "1" : "0"} onChange={(e) => update({ chargeOn: e.target.value === "1" })}>
+          <option value="1">{lang === "he" ? "מופעל" : "Включён"}</option>
+          <option value="0">{lang === "he" ? "כבוי" : "Выключен"}</option>
+        </select>
+        <label htmlFor="pl">{lang === "he" ? "מגבלת משחק" : "Лимит игры"}</label>
+        <select id="pl" value={String(s.playLimitMin)} onChange={(e) => update({ playLimitMin: Number(e.target.value) })}>
+          <option value="0">{lang === "he" ? "בלי הגבלה" : "Без лимита"}</option>
+          <option value="20">20 {lang === "he" ? "דק׳" : "мин"}</option>
+          <option value="30">30 {lang === "he" ? "דק׳" : "мин"}</option>
+          <option value="45">45 {lang === "he" ? "דק׳" : "мин"}</option>
+          <option value="60">60 {lang === "he" ? "דק׳" : "мин"}</option>
+        </select>
+        <label htmlFor="bd">{lang === "he" ? "שעת שינה" : "Время сна"}</label>
+        <select id="bd" value={s.bedtime} onChange={(e) => update({ bedtime: e.target.value })}>
+          <option value="">{lang === "he" ? "כבוי" : "Выкл."}</option>
+          <option value="20:00">20:00</option>
+          <option value="20:30">20:30</option>
+          <option value="21:00">21:00</option>
+          <option value="21:30">21:30</option>
+          <option value="22:00">22:00</option>
+        </select>
+        <p style={{ marginTop: 10 }}>
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => update({ playedToday: { day: todayKey(), sec: 0, extra: false } })}
+          >
+            {lang === "he" ? "לאפס את המגבלה להיום" : "Сбросить лимит на сегодня"}
+          </button>
+        </p>
+        <p className="muted" style={{ marginTop: 10 }}>
+          {lang === "he"
+            ? "האפליקציה לא בודקת ולא עוקבת. את היציאות מסמנת הילדה. אם משהו מדאיג אתכם לגבי הרגשה או קשב, דונו בזה עם מומחה."
+            : "Приложение ничего не проверяет и не следит. Вылазки отмечает ребёнок. Если вас что-то беспокоит в самочувствии или внимании ребёнка, обсудите это со специалистом."}
+        </p>
+        <ChargeWeek lang={lang} log={s.chargeLog} />
+
         <p style={{ marginTop: 18 }}>
           <button
             className="btn secondary"
@@ -205,6 +395,24 @@ function ParentsInner() {
             {t("resetAll")}
           </button>
         </p>
+        {cloudOnline() && (
+          <p style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="btn secondary"
+              onClick={() => {
+                const ok =
+                  lang === "he"
+                    ? confirm("למחוק את נתוני המשפחה בענן? ההזמנות והיומן יימחקו. החשבון יישאר.")
+                    : confirm("Стереть данные семьи в облаке? Заказы и журнал удалятся. Аккаунт останется.");
+                if (!ok) return;
+                void familyEraseCloud();
+              }}
+            >
+              {lang === "he" ? "מחיקת נתוני הענן" : "Стереть данные семьи в облаке"}
+            </button>
+          </p>
+        )}
       </div>
 
       <div className="card warn">
@@ -229,5 +437,29 @@ function ParentsInner() {
         </ul>
       </div>
     </>
+  );
+}
+
+const WEEKDAYS: Record<Lang, string[]> = {
+  ru: ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
+  he: ["ב׳", "ג׳", "ד׳", "ה׳", "ו׳", "ש׳", "א׳"],
+};
+
+function ChargeWeek({ lang, log }: { lang: Lang; log: Record<string, string[]> }) {
+  const keys = weekDayKeys();
+  const total = keys.reduce((n, k) => n + idsToday(log, k).length, 0);
+  return (
+    <div className="charge-week" style={{ marginTop: 14 }}>
+      <p>
+        <b>{lang === "he" ? "יציאות השבוע" : "Вылазки за неделю"}:</b> {total}
+      </p>
+      <ul style={{ margin: 0, paddingInlineStart: 20 }}>
+        {keys.map((k, i) => (
+          <li key={k}>
+            {WEEKDAYS[lang][i]}: {idsToday(log, k).length}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }

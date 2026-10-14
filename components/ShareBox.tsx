@@ -5,6 +5,7 @@ import { useGame } from "@/lib/store";
 import { levelFor } from "@/lib/game";
 import { MISSIONS } from "@/lib/missions";
 import { cardBlob, clipBlob, download, shareText, whatsappUrl, ShareData } from "@/lib/share";
+import { track } from "@/lib/analytics";
 
 const tx = {
   ru: { h: "📣 Поделиться", wa: "WhatsApp", card: "Карточка", clip: "Клип для YouTube", making: "Делаю клип…", yt: "YouTube: клип загружает родитель (у детей до 13 лет нет своего аккаунта). Скачай клип и покажи родителю. Лучше ставить «Доступ по ссылке».", fail: "Клип не поддерживается этим браузером. Скачай карточку.", note: "В карточке нет адреса, телефона и фамилии. Все деньги игровые.", progress: "Мой прогресс" },
@@ -61,9 +62,9 @@ export default function ShareBox({ title }: { title?: string }) {
     <div className="card">
       <h2>{x.h}</h2>
       <p style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <a className="btn" href={whatsappUrl(d)} target="_blank" rel="noopener noreferrer">💬 {x.wa}</a>
-        <button className="btn secondary" onClick={onCard}>🖼️ {x.card}</button>
-        <button className="btn secondary" onClick={onClip} disabled={busy}>{busy ? x.making : `🎬 ${x.clip}`}</button>
+        <a className="btn" href={whatsappUrl(d)} target="_blank" rel="noopener noreferrer" onClick={() => track("share_clicked", { kind: "whatsapp" })}>💬 {x.wa}</a>
+        <button className="btn secondary" onClick={() => { track("share_clicked", { kind: "card" }); void onCard(); }}>🖼️ {x.card}</button>
+        <button className="btn secondary" onClick={() => { track("share_clicked", { kind: "clip" }); void onClip(); }} disabled={busy}>{busy ? x.making : `🎬 ${x.clip}`}</button>
       </p>
       {err && <p style={{ color: "#c0392b" }}>{err}</p>}
       <p className="muted">{x.yt}</p>

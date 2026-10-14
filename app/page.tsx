@@ -4,6 +4,7 @@ import ShareBox from "@/components/ShareBox";
 import Link from "next/link";
 import { useGame } from "@/lib/store";
 import { BADGES, levelFor, todayKey, yesterdayKey } from "@/lib/game";
+import { CHARGE_COPY, batteryPct, dayPart, idsToday, tx } from "@/lib/wellbeing";
 import LangSwitch from "@/components/LangSwitch";
 
 export default function Home() {
@@ -41,6 +42,28 @@ export default function Home() {
           {lv.next ? `${t("toNext")}: ${xpToNext} XP` : t("maxLevel")}
         </p>
       </div>
+
+      {s.chargeOn && (
+        <Link className="card charge-teaser" href="/charge" style={{ display: "block", textDecoration: "none", color: "inherit" }}>
+          <h2>🔋 {tx(CHARGE_COPY.today, lang)}</h2>
+          <div className="charge-batt" role="img" aria-label={`${tx(CHARGE_COPY.today, lang)} ${batteryPct(idsToday(s.chargeLog, todayKey()))}%`}>
+            <div className="charge-batt-body">
+              <span style={{ width: `${batteryPct(idsToday(s.chargeLog, todayKey()))}%` }} />
+            </div>
+            <b>{batteryPct(idsToday(s.chargeLog, todayKey()))}%</b>
+          </div>
+          <p className="muted" style={{ margin: "8px 0 0" }}>
+            {tx(
+              dayPart(new Date().getHours()) === "morning"
+                ? CHARGE_COPY.homeMorning
+                : dayPart(new Date().getHours()) === "evening"
+                  ? CHARGE_COPY.homeEvening
+                  : CHARGE_COPY.homeDay,
+              lang
+            )}
+          </p>
+        </Link>
+      )}
 
       <div className="card hero">
         <h2>🎯 {t("mainMission")}</h2>

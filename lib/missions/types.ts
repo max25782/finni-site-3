@@ -36,6 +36,8 @@ export type ChoiceScene = Base & Insight & {
   title?: L;
   text: T;
   options: ChoiceOption[];
+  /** Несколько разумных вариантов, без одного «правильного». */
+  open?: boolean;
 };
 
 export type CalcScene = Base & Insight & {
@@ -115,6 +117,10 @@ export type Mission = {
   takeaways: { money: L; people: L };
   /** Заманивалка к следующему эпизоду */
   teaser?: L;
+  /** Обязательно, если в миссии есть выбор: «почему ты так выбрал?» */
+  reflection?: L;
+  /** Обязательно, если в миссии есть выбор: смена условий для второго круга */
+  twist?: L;
 };
 
 /** Индекс следующей сцены после `from`, с учётом skipIf. Возвращает scenes.length, если сцен больше нет. */

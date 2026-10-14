@@ -8,6 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.9",
+    "@supabase/supabase-js": "^2.117.3",
     "next": "^15.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

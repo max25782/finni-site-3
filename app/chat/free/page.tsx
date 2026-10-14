@@ -4,11 +4,27 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useGame } from "@/lib/store";
 import { todayKey } from "@/lib/game";
-import { containsPrivateData, SAFETY_REPLY } from "@/lib/safety";
+import { careKind, careReply, containsPrivateData, SAFETY_REPLY, type CareKind } from "@/lib/safety";
 import { voiceSupported } from "@/lib/voice";
 import { useVoiceChat } from "@/lib/voicechat";
 import type { VcTurn } from "@/lib/voicechat";
 import { VoiceTalk } from "@/components/VoiceTalk";
+import { CareCard } from "@/components/CareCard";
+import { track } from "@/lib/analytics";
+
+function ChatLimit({ text, quest }: { text: string; quest: string }) {
+  useEffect(() => {
+    track("limit_hit");
+  }, []);
+  return (
+    <div className="card warn">
+      <p>{text}</p>
+      <Link className="btn secondary" href="/quest">
+        🌍 {quest}
+      </Link>
+    </div>
+  );
+}
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -20,6 +36,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [care, setCare] = useState<CareKind>("none");
   const endRef = useRef<HTMLDivElement>(null);
   const [voiceOk, setVoiceOk] = useState(false);
   // актуальные значения для голосового цикла (колбэки приходят из замыканий старых рендеров)
@@ -34,10 +51,12 @@ export default function ChatPage() {
     send: (t) => sendRef.current(t, true),
     onInterim: (t) => setInput(t),
     onPrivate: () => safetyRef.current(),
+    onCare: (k) => setCare(k),
   });
 
   useEffect(() => {
     setVoiceOk(voiceSupported());
+    track("finny_chat_started");
   }, []);
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -63,10 +82,15 @@ export default function ChatPage() {
     setError("");
     setInput("");
 
-    // Личные данные: не отправляем, не показываем, не храним.
+    // Личные данные и тревожные слова: не отправляем в модель и не храним текст.
     if (containsPrivateData(text)) {
       showSafety();
       return { reply: SAFETY_REPLY[lang], over: false };
+    }
+    const kind = careKind(text);
+    if (kind !== "none") {
+      setCare(kind);
+      return { reply: careReply(kind, lang), over: false };
     }
 
     const next: Msg[] = [...msgsRef.current, { role: "user", content: text }];
@@ -115,6 +139,7 @@ export default function ChatPage() {
       <p><Link className="btn secondary" href="/chat" aria-label={lang === "he" ? "חזרה" : "Назад"}>{lang === "he" ? "➡︎" : "⬅︎"}</Link></p>
       <h1>🦝 {t("chatTitle")}</h1>
       <p className="muted">🔐 {t("chatWarn")}</p>
+      {care !== "none" && <CareCard kind={care} lang={lang} onClose={() => setCare("none")} />}
 
       <div className="chat">
         <div className="bubble finni">{t("chatGreeting")}</div>
@@ -129,12 +154,7 @@ export default function ChatPage() {
       </div>
 
       {limitReached ? (
-        <div className="card warn">
-          <p>{t("chatLimit")}</p>
-          <Link className="btn secondary" href="/quest">
-            🌍 {t("offlineMission")}
-          </Link>
-        </div>
+        <ChatLimit text={t("chatLimit")} quest={t("offlineMission")} />
       ) : (
         <>
           <div className="chatbar">

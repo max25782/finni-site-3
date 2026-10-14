@@ -4,7 +4,7 @@
 // приходят из страницы, чтобы не дублировать логику текстового чата.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "./voice";
-import { containsPrivateData, SAFETY_REPLY } from "./safety";
+import { careKind, careReply, containsPrivateData, SAFETY_REPLY, type CareKind } from "./safety";
 import { ensureVoices, speak, ttsSupported, unlockAudio } from "./tts";
 import type { TtsProvider } from "./tts";
 import { prepareForSpeech, speechFor } from "./speech-text";
@@ -28,6 +28,7 @@ export interface VcOptions {
   send: (text: string) => Promise<VcTurn | null>;
   onInterim: (text: string) => void;
   onPrivate: () => void;
+  onCare?: (kind: CareKind) => void;
 }
 
 export interface VoiceChat {
@@ -122,6 +123,15 @@ export function useVoiceChat(opts: VcOptions): VoiceChat {
       // личные данные не уходят в модель: показываем и озвучиваем SAFETY_REPLY
       o.current.onPrivate();
       await say(SAFETY_REPLY[lang], speechFor(SAFETY_REPLY[lang], lang), undefined);
+      if (!live()) return;
+      listenOnce();
+      return;
+    }
+    const kind = careKind(text);
+    if (kind !== "none") {
+      const reply = careReply(kind, lang);
+      o.current.onCare?.(kind);
+      await say(reply, speechFor(reply, lang), undefined);
       if (!live()) return;
       listenOnce();
       return;

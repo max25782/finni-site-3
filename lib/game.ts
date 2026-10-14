@@ -24,6 +24,8 @@ export type GameState = {
   dailyChatLimit: number;
   run: MissionRun | null; // миссия в процессе
   missionsDone: string[];
+  /** Родитель открыл миссии до №N (1–14). 0 = только по порядку прохождения. Не заменяет missionsDone. */
+  unlockedUpTo: number;
   missionDay: string;
   missionCount: number;
   missionsPerDay: number;
@@ -53,6 +55,14 @@ export type GameState = {
   ideaStreak: number;
   ideaLastDay: string;
   ideasSeen: string[];
+  chargeLog: Record<string, string[]>; // YYYY-MM-DD → id вылазок
+  chargeOn: boolean;
+  chargeXpDay: string; // день, когда уже дали +10 XP за Заряд
+  playLimitMin: number; // 0 = без лимита
+  bedtime: string; // "" = выкл., "HH:MM"
+  playedToday: { day: string; sec: number; extra?: boolean };
+  analyticsOn: boolean;
+  ageGroup: "7-9" | "10-11" | "12-14" | "unknown";
 };
 
 export type MissionRun = {
@@ -88,6 +98,7 @@ export const DEFAULT_STATE: GameState = {
   dailyChatLimit: 12,
   run: null,
   missionsDone: [],
+  unlockedUpTo: 0,
   missionDay: "",
   missionCount: 0,
   missionsPerDay: 1,
@@ -117,6 +128,14 @@ export const DEFAULT_STATE: GameState = {
   ideaStreak: 0,
   ideaLastDay: "",
   ideasSeen: [],
+  chargeLog: {},
+  chargeOn: true,
+  chargeXpDay: "",
+  playLimitMin: 0,
+  bedtime: "",
+  playedToday: { day: "", sec: 0 },
+  analyticsOn: false,
+  ageGroup: "unknown",
 };
 
 export const LEVELS = [
@@ -139,7 +158,10 @@ export function levelFor(xp: number) {
 }
 
 export function todayKey(d = new Date()): string {
-  // локальная дата, не UTC
+  // тестовый крюк: window.__finniNow — подмена «сейчас» без ломания SSR
+  if (typeof window !== "undefined" && typeof (window as Window & { __finniNow?: number }).__finniNow === "number") {
+    d = new Date((window as Window & { __finniNow?: number }).__finniNow as number);
+  }
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
@@ -159,16 +181,60 @@ export function dayIndex(d = new Date()): number {
 
 export const STORAGE_KEY = "finni-state-v1";
 
+/** Нормализация сохранённого снимка (localStorage или импорт). real подставляется отдельно. */
+export function normalizeGameSnapshot(sv: Record<string, unknown>, real: RealState): GameState {
+  const chosen = sv.langChosen === true && (sv.lang === "ru" || sv.lang === "he");
+  const lang: Lang = chosen ? (sv.lang as Lang) : "he";
+  const limits = [0, 20, 30, 45, 60];
+  const playLimitMin = limits.includes(sv.playLimitMin as number) ? (sv.playLimitMin as number) : 0;
+  const bedtime =
+    typeof sv.bedtime === "string" && (/^\d{2}:\d{2}$/.test(sv.bedtime) || sv.bedtime === "") ? sv.bedtime : "";
+  const chargeLog = sv.chargeLog && typeof sv.chargeLog === "object" ? (sv.chargeLog as Record<string, string[]>) : {};
+  const pt = sv.playedToday && typeof sv.playedToday === "object" ? (sv.playedToday as Record<string, unknown>) : {};
+  const playedToday = {
+    day: typeof pt.day === "string" ? pt.day : "",
+    sec: typeof pt.sec === "number" && pt.sec >= 0 ? Math.floor(pt.sec) : 0,
+    extra: pt.extra === true,
+  };
+  const unlockN = typeof sv.unlockedUpTo === "number" ? Math.min(14, Math.max(0, Math.floor(sv.unlockedUpTo))) : 0;
+  return {
+    ...DEFAULT_STATE,
+    ...sv,
+    lang,
+    langChosen: chosen,
+    voiceProvider: sv.voiceProvider === "elevenlabs" ? "elevenlabs" : "browser",
+    real,
+    chargeLog,
+    chargeOn: sv.chargeOn !== false,
+    chargeXpDay: typeof sv.chargeXpDay === "string" ? sv.chargeXpDay : "",
+    playLimitMin,
+    bedtime,
+    playedToday,
+    analyticsOn: sv.analyticsOn === true,
+    ageGroup: sv.ageGroup === "7-9" || sv.ageGroup === "12-14" || sv.ageGroup === "10-11" ? (sv.ageGroup as GameState["ageGroup"]) : "unknown",
+    unlockedUpTo: unlockN,
+  };
+}
+
+/** Заблокирована ли миссия по индексу (0-based) в сезоне. */
+export function isMissionLocked(s: GameState, missionIndex: number, orderedIds: string[]): boolean {
+  const id = orderedIds[missionIndex];
+  if (!id) return true;
+  if (s.missionsDone.includes(id)) return false;
+  if (missionIndex === 0) return s.unlockedUpTo < 1;
+  if (s.missionsDone.includes(orderedIds[missionIndex - 1])) return false;
+  return s.unlockedUpTo < missionIndex + 1;
+}
+
 export function loadState(): GameState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_STATE };
     const sv = JSON.parse(raw);
     if (!sv || typeof sv !== "object") return { ...DEFAULT_STATE };
-    // Миграция: в старых сохранениях "ru" был просто дефолтом. Уважаем язык только при явном langChosen === true.
-    const chosen = sv.langChosen === true && (sv.lang === "ru" || sv.lang === "he");
-    const lang: Lang = chosen ? sv.lang : "he";
-    return { ...DEFAULT_STATE, ...sv, lang, langChosen: chosen, voiceProvider: sv.voiceProvider === "elevenlabs" ? "elevenlabs" : "browser", real: { ...DEFAULT_REAL, ...(sv.real ?? {}) } };
+    const merged = sv as Record<string, unknown>;
+    const real = { ...DEFAULT_REAL, ...((merged.real as object) ?? {}) };
+    return normalizeGameSnapshot(merged, real);
   } catch {
     return { ...DEFAULT_STATE };
   }
@@ -199,4 +265,7 @@ export const BADGES: Record<string, { icon: string; ru: string; he: string }> = 
   first_earn: { icon: "💵", ru: "Первый заработок", he: "ההכנסה הראשונה" },
   idea_week: { icon: "💡", ru: "Идея дня: 7 дней", he: "רעיון היום: 7 ימים" },
   mission1: { icon: "📿", ru: "Ярмарка пройдена", he: "היריד הושלם" },
+  quiet_keeper: { icon: "🌿", ru: "Хранитель тишины", he: "שומרת השקט" },
+  morning_raccoon: { icon: "🌅", ru: "Утренний енот", he: "דביבון הבוקר" },
+  night_guard: { icon: "🌙", ru: "Ночной страж", he: "שומרת הלילה" },
 };

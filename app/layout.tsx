@@ -1,10 +1,12 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { GameProvider } from "@/lib/store";
+import { CloudBridge } from "@/components/CloudBridge";
 import { META } from "@/lib/meta";
 import Nav from "@/components/Nav";
 import MusicController from "@/components/MusicController";
 import HeaderLang from "@/components/HeaderLang";
+import { PlayGuard } from "@/components/PlayGuard";
 
 // По умолчанию иврит. Русская версия живёт в lib/meta.ts и подставляется на клиенте.
 export const metadata: Metadata = {
@@ -27,10 +29,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <GameProvider>
-          <main className="wrap">{children}</main>
-          <Nav />
-          <HeaderLang />
-          <MusicController />
+          <CloudBridge>
+            <main className="wrap">{children}</main>
+            <Nav />
+            <HeaderLang />
+            <MusicController />
+            <PlayGuard />
+          </CloudBridge>
         </GameProvider>
       </body>
     </html>

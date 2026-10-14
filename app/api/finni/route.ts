@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { buildSystemPrompt } from "@/lib/prompt";
-import { containsPrivateData, SAFETY_REPLY } from "@/lib/safety";
+import { careKind, careReply, containsPrivateData, SAFETY_REPLY } from "@/lib/safety";
 import { speechExtras } from "@/lib/tts-token";
 
 export const runtime = "nodejs";
@@ -82,6 +82,16 @@ export async function POST(req: NextRequest) {
   // Повторная проверка на сервере: ни одно сообщение с личными данными не уходит в модель.
   if (messages.some((m) => m.role === "user" && containsPrivateData(m.content))) {
     return NextResponse.json({ reply: SAFETY_REPLY[lang], xp: 0, blocked: true });
+  }
+  const care = messages.reduce<"none" | "distress" | "harm">((acc, m) => {
+    if (m.role !== "user") return acc;
+    const k = careKind(m.content);
+    if (k === "harm" || acc === "harm") return "harm";
+    if (k === "distress") return "distress";
+    return acc;
+  }, "none");
+  if (care !== "none") {
+    return NextResponse.json({ reply: careReply(care, lang), xp: 0, blocked: true });
   }
 
   if (overLimit(ipOf(req))) {

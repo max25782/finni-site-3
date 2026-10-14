@@ -8,6 +8,7 @@ import { BLITZ, BlitzItem } from "@/lib/blitz";
 import { Burst } from "@/components/fx";
 import { sfx } from "@/lib/fx";
 import { music } from "@/lib/music";
+import { track } from "@/lib/analytics";
 
 const MAX_ROUNDS = 3;
 const SECONDS = 45;
@@ -16,6 +17,13 @@ const tx = {
   ru: { h: "⚡ Блиц 45 секунд", intro: "Быстрые решения: жми левую или правую кнопку. Серия из 5 верных даёт +3 секунды. Ошибки ничего не отнимают: смотри разбор в конце.", go: "Старт!", left: "Раундов сегодня", none: "Три раунда на сегодня сыграны. Мозгу нужна пауза. Завтра будет снова!", score: "Верных", best: "Рекорд", xp: "XP", again: "Ещё раунд", back: "На главную", miss: "Что стоит запомнить", combo: "Серия", rule: "Лимит 3 раунда в день: быстрые игры работают лучше, когда их немного." },
   he: { h: "⚡ בליץ 45 שניות", intro: "החלטות מהירות: לחצו על הכפתור השמאלי או הימני. רצף של 5 נכונות נותן +3 שניות. טעויות לא מורידות כלום: הסבר בסוף.", go: "התחלה!", left: "סיבובים היום", none: "שלושת הסיבובים להיום הושלמו. למוח מגיעה הפסקה. מחר שוב!", score: "נכונות", best: "שיא", xp: "XP", again: "עוד סיבוב", back: "לדף הבית", miss: "מה כדאי לזכור", combo: "רצף", rule: "מגבלה של 3 סיבובים ביום: משחקים מהירים עובדים טוב יותר כשהם מעטים." },
 };
+
+function BlitzLimit({ text }: { text: string }) {
+  useEffect(() => {
+    track("limit_hit");
+  }, []);
+  return <div className="card warn">{text}</div>;
+}
 
 function shuffle<T>(a: T[]): T[] {
   const b = [...a];
@@ -69,6 +77,7 @@ export default function BlitzPage() {
       addXp(xp);
       update({ blitzDay: today, blitzCount: used + 1, blitzBest: Math.max(s.blitzBest, ok) });
       sfx("win");
+      track("blitz_finished", { score: ok });
       setPhase("over");
     }
   }, [time, phase]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -119,6 +128,7 @@ export default function BlitzPage() {
     setFlash("");
     setTime(SECONDS);
     setPhase("play");
+    track("blitz_started");
     sfx("tick");
   };
 
@@ -166,7 +176,7 @@ export default function BlitzPage() {
             {phase === "over" ? x.again : x.go}
           </button>
         ) : (
-          <div className="card warn">{x.none}</div>
+          <BlitzLimit text={x.none} />
         )}{" "}
         <Link className="btn secondary" href="/">
           {x.back}

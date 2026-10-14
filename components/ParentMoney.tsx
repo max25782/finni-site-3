@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useGame } from "@/lib/store";
-import { addEntry, applyBridge, bridgeable, fmt, ledgerBalance, ledgerCsv, LIMITS, negotiate, parentConfirm, parentCreate, parentReturn, type Job, type LedgerEntry, type Res } from "@/lib/real";
+import { bridgeable, fmt, ledgerBalance, ledgerCsv, LIMITS, type Job, type LedgerEntry, type Res } from "@/lib/real";
+import { cloudOnline, saveSettings } from "@/lib/cloud";
+import { ioBridge, ioConfirm, ioLedger, ioNegotiate, ioParentCreate, ioReturn } from "@/lib/real-io";
 
 const RATES = [0, 5, 10, 20, 50, 100];
 
@@ -19,13 +21,14 @@ export default function ParentMoney() {
   const [payNote, setPayNote] = useState("");
   const [copied, setCopied] = useState(false);
 
-  const run = (res: Res, ok?: () => void) => {
-    if ("error" in res) {
-      setMsg(res.error === "price" ? L(`Цена от ${LIMITS.minShekel} до ${LIMITS.maxShekel} ₪`, `מחיר בין ${LIMITS.minShekel} ל-${LIMITS.maxShekel} ₪`) : res.error === "title" ? L("Опишите дело (от 3 букв)", "תארו את המשימה (3 אותיות לפחות)") : L("Не получилось", "לא הצליח"));
+  const run = async (res: Res | Promise<Res>, ok?: () => void) => {
+    const out = await res;
+    if ("error" in out) {
+      setMsg(out.error === "price" ? L(`Цена от ${LIMITS.minShekel} до ${LIMITS.maxShekel} ₪`, `מחיר בין ${LIMITS.minShekel} ל-${LIMITS.maxShekel} ₪`) : out.error === "title" ? L("Опишите дело (от 3 букв)", "תארו את המשימה (3 אותיות לפחות)") : L("Не получилось", "לא הצליח"));
       return;
     }
     setMsg("");
-    update({ real: res.real });
+    update({ real: out.real });
     ok?.();
   };
 
@@ -64,8 +67,12 @@ export default function ParentMoney() {
       <h2>💵 {L("Реальные деньги (по желанию)", "כסף אמיתי (לפי שיקולכם)")}</h2>
       <p className="muted">
         {L(
-          "Это только учёт. Приложение ничего не переводит: вы решаете, платить ли и как. Журнал хранится в браузере этого устройства. Очистка данных браузера его удалит, поэтому периодически копируйте журнал ниже.",
-          "זה רק רישום. האפליקציה לא מעבירה כסף: אתם מחליטים אם ואיך לשלם. היומן נשמר בדפדפן של המכשיר. ניקוי נתוני הדפדפן ימחק אותו, לכן העתיקו אותו מדי פעם."
+          cloudOnline()
+            ? "Это только учёт. Приложение ничего не переводит. Журнал и заказы пишутся в облако семьи."
+            : "Это только учёт. Приложение ничего не переводит: вы решаете, платить ли и как. Журнал хранится в браузере этого устройства. Очистка данных браузера его удалит, поэтому периодически копируйте журнал ниже.",
+          cloudOnline()
+            ? "זה רק רישום. האפליקציה לא מעבירה כסף. היומן וההזמנות נשמרים בענן המשפחה."
+            : "זה רק רישום. האפליקציה לא מעבירה כסף: אתם מחליטים אם ואיך לשלם. היומן נשמר בדפדפן של המכשיר. ניקוי נתוני הדפדפן ימחק אותו, לכן העתיקו אותו מדי פעם."
         )}
       </p>
       <p>
@@ -85,17 +92,17 @@ export default function ParentMoney() {
           {j.status === "negotiating" && (
             <>
               <div className="row">
-                <button className="btn" onClick={() => run(negotiate(r, j.id, "parent", { t: "accept" }))}>
+                <button className="btn" onClick={() => void run(ioNegotiate(r, j.id, "parent", { t: "accept" }))}>
                   {L("Принять", "לקבל")} {fmt(j.price)}
                 </button>
-                <button className="btn secondary" onClick={() => run(negotiate(r, j.id, "parent", { t: "decline" }))}>
+                <button className="btn secondary" onClick={() => void run(ioNegotiate(r, j.id, "parent", { t: "decline" }))}>
                   {L("Отклонить", "לדחות")}
                 </button>
               </div>
               {j.events.filter((e) => e.kind === "counter").length < LIMITS.maxCounters && (
                 <div className="row" style={{ marginTop: 8 }}>
                   <input type="number" inputMode="numeric" style={{ maxWidth: 120 }} placeholder="₪" value={counter[j.id] ?? ""} onChange={(e) => setCounter({ ...counter, [j.id]: e.target.value })} />
-                  <button className="btn secondary" disabled={!counter[j.id]} onClick={() => run(negotiate(r, j.id, "parent", { t: "counter", shekel: Number(counter[j.id]) }))}>
+                  <button className="btn secondary" disabled={!counter[j.id]} onClick={() => void run(ioNegotiate(r, j.id, "parent", { t: "counter", shekel: Number(counter[j.id]) }))}>
                     {L("Предложить свою цену", "להציע מחיר משלכם")}
                   </button>
                 </div>
@@ -104,11 +111,11 @@ export default function ParentMoney() {
           )}
           {j.status === "claimed" && (
             <div className="row">
-              <button className="btn" onClick={() => run(parentConfirm(r, j.id))}>
+              <button className="btn" onClick={() => void run(ioConfirm(r, j.id))}>
                 ✅ {L("Подтвердить и записать", "לאשר ולרשום")} {fmt(j.price)}
                 {r.matchPct > 0 ? ` +${r.matchPct}%` : ""}
               </button>
-              <button className="btn secondary" onClick={() => run(parentReturn(r, j.id))}>
+              <button className="btn secondary" onClick={() => void run(ioReturn(r, j.id))}>
                 {L("Вернуть на доработку", "להחזיר לתיקון")}
               </button>
             </div>
@@ -130,7 +137,7 @@ export default function ParentMoney() {
           className="btn secondary"
           disabled={!nt.trim() || !np}
           onClick={() =>
-            run(parentCreate(r, nt, nd, Number(np)), () => {
+            void run(ioParentCreate(r, nt, nd, Number(np)), () => {
               setNt("");
               setNd("");
               setNp("");
@@ -143,7 +150,7 @@ export default function ParentMoney() {
       {msg && <p style={{ color: "#c0392b", fontWeight: 700 }}>{msg}</p>}
 
       <h3 style={{ marginTop: 18 }}>{L("Надбавка к заказам", "תוספת להזמנות")}</h3>
-      <select value={r.matchPct} onChange={(e) => update({ real: { ...r, matchPct: Number(e.target.value) } })}>
+      <select value={r.matchPct} onChange={(e) => { const matchPct = Number(e.target.value); update({ real: { ...r, matchPct } }); if (cloudOnline()) void saveSettings({ matchPct }); }}>
         {[0, 10, 25, 50, 100].map((p) => (
           <option key={p} value={p}>
             {p === 0 ? L("Нет", "ללא") : `+${p}%`}
@@ -161,7 +168,7 @@ export default function ParentMoney() {
         )}
       </p>
       <label htmlFor="rt">{L("Курс: за 1 игровой ₪", "שער: לכל שקל משחק")}</label>
-      <select id="rt" value={r.rate} onChange={(e) => update({ real: { ...r, rate: Number(e.target.value) } })}>
+      <select id="rt" value={r.rate} onChange={(e) => { const rate = Number(e.target.value); update({ real: { ...r, rate } }); if (cloudOnline()) void saveSettings({ rate }); }}>
         {RATES.map((a) => (
           <option key={a} value={a}>
             {a === 0 ? L("0 — выключено", "0 — כבוי") : `${a} ${L("агорот", "אגורות")}`}
@@ -169,11 +176,11 @@ export default function ParentMoney() {
         ))}
       </select>
       <label htmlFor="cp">{L("Лимит в неделю, ₪ (0 = мост не работает)", "תקרה שבועית, ₪ (0 = הגשר לא פועל)")}</label>
-      <input id="cp" type="number" inputMode="numeric" min={0} max={1000} value={r.weeklyCap / 100} onChange={(e) => update({ real: { ...r, weeklyCap: Math.max(0, Math.min(100000, Math.round(Number(e.target.value || 0) * 100))) } })} />
+      <input id="cp" type="number" inputMode="numeric" min={0} max={1000} value={r.weeklyCap / 100} onChange={(e) => { const weeklyCap = Math.max(0, Math.min(100000, Math.round(Number(e.target.value || 0) * 100))); update({ real: { ...r, weeklyCap } }); if (cloudOnline()) void saveSettings({ weeklyCap }); }} />
       {r.rate > 0 && r.weeklyCap > 0 && (
         <p>
           {L("На этой неделе заработано игровых", "השבוע הרוויחה במשחק")}: {r.weekGame} ₪ · {L("можно зачесть", "אפשר לזכות")}: <b>{fmt(bridge)}</b>{" "}
-          <button className="btn secondary" disabled={bridge <= 0} onClick={() => run(applyBridge(r))}>
+          <button className="btn secondary" disabled={bridge <= 0} onClick={() => void run(ioBridge(r))}>
             {L("Зачислить", "לזכות")}
           </button>
         </p>
@@ -197,7 +204,7 @@ export default function ParentMoney() {
           className="btn secondary"
           disabled={!pay}
           onClick={() =>
-            run(addEntry(r, "payout", Number(pay), payNote || L("выплата", "תשלום")), () => {
+            void run(ioLedger(r, "payout", Number(pay), payNote || L("выплата", "תשלום")), () => {
               setPay("");
               setPayNote("");
             })
@@ -209,7 +216,7 @@ export default function ParentMoney() {
           className="btn secondary"
           disabled={!pay}
           onClick={() =>
-            run(addEntry(r, "adjust", Number(pay), payNote || L("корректировка", "תיקון")), () => {
+            void run(ioLedger(r, "adjust", Number(pay), payNote || L("корректировка", "תיקון")), () => {
               setPay("");
               setPayNote("");
             })

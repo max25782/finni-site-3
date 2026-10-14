@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { containsPrivateData, SAFETY_REPLY } from "@/lib/safety";
+import { careKind, careReply, containsPrivateData, SAFETY_REPLY } from "@/lib/safety";
 import { ARENA_MAX_TURNS, DEBATES, HAGGLES, TACTIC_KEYS } from "@/lib/arena";
 import { FLOORS, debateSystem, haggleSystem, parseJson } from "@/lib/arena-server";
 import { speechExtras } from "@/lib/tts-token";
@@ -60,6 +60,16 @@ export async function POST(req: NextRequest) {
 
   if (msgs.some((m) => m.role === "user" && containsPrivateData(m.content))) {
     return NextResponse.json({ blocked: true, reply: SAFETY_REPLY[lang] });
+  }
+  const care = msgs.reduce<"none" | "distress" | "harm">((acc, m) => {
+    if (m.role !== "user") return acc;
+    const k = careKind(m.content);
+    if (k === "harm" || acc === "harm") return "harm";
+    if (k === "distress") return "distress";
+    return acc;
+  }, "none");
+  if (care !== "none") {
+    return NextResponse.json({ blocked: true, reply: careReply(care, lang) });
   }
   if (overLimit(req.headers.get("x-forwarded-for")?.split(",")[0].trim() || "unknown")) return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   const key = process.env.ANTHROPIC_API_KEY;

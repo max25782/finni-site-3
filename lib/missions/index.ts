@@ -14,6 +14,9 @@ import { negotiatorMission } from "./negotiator";
 import { finaleMission } from "./finale";
 import { L } from "./types";
 import type { Mission } from "./types";
+import { THINK } from "./think";
+export { validateMission, hasChoice } from "./validate";
+export { draftChoiceMission } from "./generate";
 
 const RAW: Mission[] = [braceletsMission, monthMission, kioskMission, detectiveMission, channelMission, attentionMission, inflationMission, jobMission, bigbuyMission, familyMission, givingMission, islandMission, negotiatorMission, finaleMission];
 export const missionById = (id: string) => MISSIONS.find((m) => m.id === id);
@@ -53,4 +56,12 @@ const TEASERS: Record<string, ReturnType<typeof L>> = {
   kiosk: L("Завтра: дело детектива. Мошенники хитрее, чем кажется.", "מחר: תיק בלשי. נוכלים ערמומיים ממה שנראה."),
   detective: L("Завтра: твой собственный канал. Что быстрее растёт: просмотры или деньги?", "מחר: הערוץ שלכם. מה גדל מהר יותר: צפיות או כסף?"),
 };
-export const MISSIONS: Mission[] = RAW.map((m) => addHooks({ ...m, teaser: m.teaser ?? TEASERS[m.id] }));
+export const MISSIONS: Mission[] = RAW.map((m) => {
+  const think = THINK[m.id];
+  return addHooks({
+    ...m,
+    teaser: m.teaser ?? TEASERS[m.id],
+    reflection: m.reflection ?? think?.reflection,
+    twist: m.twist ?? think?.twist,
+  });
+});

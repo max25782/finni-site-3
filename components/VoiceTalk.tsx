@@ -2,6 +2,7 @@
 
 import { VOICE_MSG } from "@/lib/voice";
 import type { VoiceChat } from "@/lib/voicechat";
+import { track } from "@/lib/analytics";
 
 type Lang = "ru" | "he";
 
@@ -79,7 +80,10 @@ export function VoiceTalk({ vc, lang, unavailable }: { vc: VoiceChat; lang: Lang
       <button
         type="button"
         className={`btn vbig ${vc.active ? "combo" : ""}`}
-        onClick={vc.press}
+        onClick={() => {
+          if (!vc.active) track("finny_voice_started");
+          vc.press();
+        }}
         disabled={unavailable !== ""}
         data-voice-talk={unavailable === "" ? (vc.active ? "active" : "ready") : unavailable}
       >

@@ -8,11 +8,25 @@ import { music } from "@/lib/music";
 import { CALC_LADDER, FAST, IDLE, SAME, SOFT2, nudgePick } from "@/lib/nudges";
 import Link from "next/link";
 import { useGame } from "@/lib/store";
-import { todayKey } from "@/lib/game";
+import { isMissionLocked, todayKey } from "@/lib/game";
 import { MISSIONS, missionById } from "@/lib/missions";
 import { firstIndex, nextIndex, tx, V, Scene, L, Mission } from "@/lib/missions/types";
 import type { LogEntry } from "@/lib/game";
 import { BOOK_LABEL } from "@/lib/quests";
+import {
+  hookCalc,
+  hookChoice,
+  hookDebriefDone,
+  hookHint,
+  hookIdleStuck,
+  hookRating,
+  hookReflection,
+  hookSceneDone,
+  hookSceneShown,
+  hookTwistShown,
+  track,
+  type ReasonId,
+} from "@/lib/analytics";
 
 type Result = { outcome: string; patch: Record<string, number>; xp: number; badge?: string; good?: boolean; c: number; a?: number[]; bonus?: number; mood?: "good" | "soft"; notes?: string[] };
 
@@ -160,6 +174,87 @@ function DebriefCard({ mission, e, lang }: { mission: Mission; e: LogEntry; lang
   );
 }
 
+const REASONS: { id: ReasonId; ru: string; he: string }[] = [
+  { id: "cheaper", ru: "дешевле", he: "יותר זול" },
+  { id: "needed", ru: "нужнее", he: "יותר נחוץ" },
+  { id: "try", ru: "хочу попробовать", he: "רוצה לנסות" },
+  { id: "unknown", ru: "не знаю", he: "לא יודע" },
+];
+
+function ThinkPrompt({ mission, lang, askWhy }: { mission: Mission; lang: "ru" | "he"; askWhy?: boolean }) {
+  const [why, setWhy] = useState<"open" | "done">("open");
+  useEffect(() => {
+    if (mission.twist) hookTwistShown(mission.id);
+  }, [mission.id, mission.twist]);
+  if (!mission.reflection && !mission.twist) return null;
+  return (
+    <div className="card" style={{ marginTop: 10 }}>
+      {mission.reflection && <p>🤔 {mission.reflection[lang]}</p>}
+      {askWhy && mission.reflection && why === "open" && (
+        <div className="options" style={{ marginTop: 8 }}>
+          {REASONS.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              className="option"
+              onClick={() => {
+                hookReflection(mission.id, r.id);
+                setWhy("done");
+              }}
+            >
+              {r[lang]}
+            </button>
+          ))}
+          <button
+            type="button"
+            className="btn secondary"
+            onClick={() => {
+              hookReflection(mission.id, null);
+              setWhy("done");
+            }}
+          >
+            {lang === "he" ? "דילוג" : "Пропустить"}
+          </button>
+        </div>
+      )}
+      {mission.twist && <p className="muted">🔁 {mission.twist[lang]}</p>}
+    </div>
+  );
+}
+
+function LimitHitCard({ text }: { text: string }) {
+  useEffect(() => {
+    track("limit_hit");
+  }, []);
+  return <div className="card warn">{text}</div>;
+}
+
+function MissionRating({ missionId, lang }: { missionId: string; lang: "ru" | "he" }) {
+  const [done, setDone] = useState(false);
+  if (done) return <p className="muted">{lang === "he" ? "תודה!" : "Спасибо!"}</p>;
+  return (
+    <p style={{ display: "flex", gap: 10, fontSize: 28, flexWrap: "wrap", alignItems: "center" }}>
+      {([1, 2, 3] as const).map((n) => (
+        <button
+          key={n}
+          type="button"
+          className="btn secondary"
+          aria-label={String(n)}
+          onClick={() => {
+            hookRating(missionId, n);
+            setDone(true);
+          }}
+        >
+          {n === 1 ? "😍" : n === 2 ? "😐" : "😴"}
+        </button>
+      ))}
+      <button type="button" className="btn secondary" style={{ fontSize: 15 }} onClick={() => setDone(true)}>
+        {lang === "he" ? "דילוג" : "Пропустить"}
+      </button>
+    </p>
+  );
+}
+
 const LESSONS = [
   L("Сначала плати себе: часть денег откладывай сразу.", "קודם משלמים לעצמך: מפרישים חלק מהכסף מיד."),
   L("Выручка ≠ прибыль. Считай расходы.", "הכנסה ≠ רווח. סופרים הוצאות."),
@@ -201,6 +296,9 @@ export default function MissionPage() {
     if (mission && scene && scene.kind === "input" && run) setNum(scene.initial(run.vars));
     if (scene && scene.kind === "find") setSel(scene.items.map(() => false));
     if (scene && scene.kind === "split" && run) setAlloc(scene.parts.map((p) => p.min ?? 0));
+    if (mission && scene && run) {
+      hookSceneShown(mission.id, scene.id, scene.kind);
+    }
   }, [run?.idx, run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -209,16 +307,31 @@ export default function MissionPage() {
     softRun.current = 0;
   }, [run?.id]);
 
-  // Если ребёнок завис, Финни задаёт один наводящий вопрос (один раз на сцену).
+  // Если ребёнок завис на сцене — idle_stuck, не hint_used. Скрытая вкладка не считается.
   useEffect(() => {
     if (!scene || !run || res) return;
     if (!["choice", "calc", "find", "split", "input"].includes(scene.kind)) return;
     const topic = ("topic" in scene && scene.topic ? scene.topic : "default") as "money" | "people" | "mind" | "default";
-    const id = setTimeout(() => {
-      setNudge((cur) => cur ?? nudgePick(IDLE[topic], lang, (run?.idx ?? 0) * 7 + (run?.xp ?? 0)));
-      sfx("tick");
-    }, 22000);
-    return () => clearTimeout(id);
+    let id = 0;
+    const arm = () => {
+      window.clearTimeout(id);
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      id = window.setTimeout(() => {
+        if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+        setNudge((cur) => {
+          if (cur) return cur;
+          if (mission && scene) hookIdleStuck(mission.id, scene.id, scene.kind);
+          return nudgePick(IDLE[topic], lang, (run?.idx ?? 0) * 7 + (run?.xp ?? 0));
+        });
+        sfx("tick");
+      }, 22000);
+    };
+    arm();
+    document.addEventListener("visibilitychange", arm);
+    return () => {
+      window.clearTimeout(id);
+      document.removeEventListener("visibilitychange", arm);
+    };
   }, [run?.idx, run?.id, !!res, lang]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -254,6 +367,7 @@ export default function MissionPage() {
             <br />⭐ {ui.xp[lang]}: <b>{celebrate.xp}</b>
           </p>
         </div>
+        <MissionRating missionId={m.id} lang={lang} />
         <ShareBox title={m.title[lang]} />
         {m.teaser && (
           <div className="card hero">
@@ -279,11 +393,10 @@ export default function MissionPage() {
         <div className="bar" style={{ marginBottom: 12 }}>
           <span style={{ width: `${Math.round((100 * s.missionsDone.filter((id) => MISSIONS.some((m) => m.id === id)).length) / MISSIONS.length)}%` }} />
         </div>
-        {limitReached && <div className="card warn">{ui.limit[lang]}</div>}
+        {limitReached && <LimitHitCard text={ui.limit[lang]} />}
         {MISSIONS.map((m, i) => {
           const done = s.missionsDone.includes(m.id);
-          const prevDone = i === 0 || s.missionsDone.includes(MISSIONS[i - 1].id);
-          const locked = !done && !prevDone;
+          const locked = isMissionLocked(s, i, MISSIONS.map((x) => x.id));
           return (
             <div key={m.id} className="card" style={locked ? { opacity: 0.55 } : undefined}>
               <p className="muted" style={{ margin: 0 }}>
@@ -322,6 +435,8 @@ export default function MissionPage() {
 
   const go = (patch: Record<string, number>, xp: number, badge?: string, c?: number, a?: number[]) => {
     if (badge) addBadge(badge);
+    const dur = Date.now() - t0.current;
+    hookSceneDone(mission.id, scene.id, scene.kind, dur);
     const log: LogEntry | undefined = c === undefined ? undefined : { id: scene.id, c, v: { ...v }, ...(a ? { a } : {}) };
     advanceMission(idx, nextIndex(mission.scenes, idx, { ...v, ...patch }), patch, xp, log);
   };
@@ -396,7 +511,7 @@ export default function MissionPage() {
   const breakHint = idx > 0 && idx % 8 === 0 && !res;
   const Footer = () => (
     <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: "wrap" }}>
-      <button className="btn secondary" style={{ padding: "10px 14px", fontSize: 15 }} onClick={() => setBreakOpen(true)}>
+      <button className="btn secondary" style={{ padding: "10px 14px", fontSize: 15 }} onClick={() => { track("break_shown", { mission_id: mission.id, scene_id: scene.id }); setBreakOpen(true); }}>
         🧘 {lang === "he" ? "הפסקה" : "Перерыв"}
       </button>
       <button className="btn secondary" style={{ padding: "10px 14px", fontSize: 15 }} onClick={() => (window.location.href = "/")}>
@@ -448,6 +563,7 @@ export default function MissionPage() {
     body = res ? (
       <>
         <ResultBox r={res} />
+        <ThinkPrompt mission={mission} lang={lang} askWhy />
         <Hook />
         <button className="btn" onClick={() => go(res.patch, res.xp + (res.bonus ?? 0), res.badge, res.c)}>
           {ui.next[lang]}
@@ -466,7 +582,7 @@ export default function MissionPage() {
               onClick={() => {
                 const r = o.apply(v);
                 const best = Math.max(...scene.options.filter((x) => !x.disabled?.(v)).map((x) => x.apply(v).xp));
-                const good = r.xp >= best * 0.7;
+                const good = scene.open ? true : r.xp >= best * 0.7;
                 const bonus = comboStep(good) + (speedOk() ? 5 : 0);
                 picks.current = [...picks.current, i].slice(-3);
                 softRun.current = good ? 0 : softRun.current + 1;
@@ -475,6 +591,7 @@ export default function MissionPage() {
                 else if (softRun.current >= 2) setNudge(nudgePick(SOFT2, lang, idx));
                 else if (longText && Date.now() - t0.current < 2500) setNudge(nudgePick(FAST, lang, idx));
                 sfx(bonus >= 5 && good ? "combo" : good ? "good" : "soft");
+                hookChoice(mission.id, scene.id, `c${i}`);
                 setRes({ outcome: r.outcome[lang], patch: clean(r.vars), xp: r.xp, badge: r.badge, c: i, bonus, mood: good ? "good" : "soft" });
               }}
             >
@@ -508,11 +625,13 @@ export default function MissionPage() {
               if (!good && tries < 2) {
                 setTries(tries + 1);
                 setNudge(nudgePick(CALC_LADDER[tries], lang, idx + tries));
+                hookHint(mission.id, scene.id, "calc", tries + 1);
                 sfx("soft");
                 return;
               }
               setNudge(null);
               setWrong(!good);
+              hookCalc(mission.id, scene.id, good, tries + 1);
               const bonus = comboStep(good);
               sfx(good ? (bonus ? "combo" : "good") : "soft");
               setRes({
@@ -696,6 +815,7 @@ export default function MissionPage() {
         </p>
         <h2>🔍 {ui.debrief[lang]}</h2>
         <p className="muted">{ui.debriefNote[lang]}</p>
+        <ThinkPrompt mission={mission} lang={lang} />
         {(run.log ?? []).map((e, i) => (
           <DebriefCard key={i} mission={mission} e={e} lang={lang} />
         ))}
@@ -707,6 +827,7 @@ export default function MissionPage() {
         <button
           className="btn"
           onClick={() => {
+            hookDebriefDone(mission.id);
             setCelebrate({ xp: run.xp + bonus, balance: gain, v: { ...v }, m: mission });
             finishMission(mission.id, bonus, gain, mission.badges(v));
           }}
@@ -719,7 +840,7 @@ export default function MissionPage() {
 
   return (
     <div className="card">
-      {breakOpen && <BreakOverlay lang={lang} onClose={() => setBreakOpen(false)} />}
+      {breakOpen && <BreakOverlay lang={lang} onClose={() => { track("break_accepted", { mission_id: mission.id, scene_id: scene.id }); setBreakOpen(false); }} />}
       <Head />
       {body}
       {scene.kind !== "end" && <Footer />}

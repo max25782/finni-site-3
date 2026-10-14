@@ -5,6 +5,16 @@ import { DEFAULT_STATE, GameState, LogEntry, Lang, loadState, saveState, todayKe
 import { tr } from "./i18n";
 import { META } from "./meta";
 import { addWeekGame } from "./real";
+import {
+  abandonIfOpen,
+  configureAnalytics,
+  hookMissionDone,
+  hookMissionStart,
+  onPageHide,
+  onTabHidden,
+  onTabVisible,
+  startAnalyticsSession,
+} from "./analytics";
 
 type Ctx = {
   s: GameState;
@@ -37,6 +47,25 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (ready) saveState(s);
   }, [s, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    configureAnalytics({ lang: s.lang, ageGroup: s.ageGroup, consent: s.analyticsOn });
+    startAnalyticsSession();
+    const onVis = () => {
+      if (document.visibilityState === "hidden") onTabHidden();
+      else onTabVisible();
+    };
+    const onHidePage = (e: PageTransitionEvent) => {
+      onPageHide(e.persisted);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", onHidePage);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", onHidePage);
+    };
+  }, [ready, s.lang, s.ageGroup, s.analyticsOn]);
 
   useEffect(() => {
     // до загрузки состояния не трогаем <html>: иначе дефолтный he на миг перебьёт ru из загрузочного скрипта
@@ -90,6 +119,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     setS((p) => {
       const today = todayKey();
       const count = p.missionDay === today ? p.missionCount : 0;
+      hookMissionStart(id, p.missionsDone.length > 0 && !p.missionsDone.includes(id));
       return {
         ...p,
         run: { id, idx: firstIdx, vars: { ...vars }, xp: 0, log: [] },
@@ -123,6 +153,7 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
   const finishMission = useCallback((id: string, bonusXp: number, balanceGain: number, badges: string[]) => {
     setS((p) => {
       if (!p.run || p.run.id !== id) return p;
+      hookMissionDone(id);
       const today = todayKey();
       const streak = p.lastDay === today ? p.streak : p.lastDay === yesterdayKey() ? p.streak + 1 : 1;
       const b = new Set(p.badges);
@@ -144,7 +175,10 @@ export function GameProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const abandonMission = useCallback(() => setS((p) => ({ ...p, run: null })), []);
+  const abandonMission = useCallback(() => {
+    abandonIfOpen();
+    setS((p) => ({ ...p, run: null }));
+  }, []);
 
   // сброс прогресса не сбрасывает выбранный язык
   const reset = useCallback(() => setS((p) => ({ ...DEFAULT_STATE, lang: p.lang, langChosen: p.langChosen })), []);

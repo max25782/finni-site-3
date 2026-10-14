@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useGame } from "@/lib/store";
 import { todayKey } from "@/lib/game";
-import { containsPrivateData, SAFETY_REPLY } from "@/lib/safety";
+import { careKind, careReply, containsPrivateData, SAFETY_REPLY, type CareKind } from "@/lib/safety";
+import { CareCard } from "@/components/CareCard";
 import { ARENA_MAX_TURNS, ARENA_ROUNDS_PER_DAY, DEBATES, HAGGLES, TACTICS } from "@/lib/arena";
 import { listen, voiceSupported, VOICE_MSG } from "@/lib/voice";
 import { useVoiceChat } from "@/lib/voicechat";
@@ -12,6 +13,7 @@ import type { VcTurn } from "@/lib/voicechat";
 import { VoiceTalk } from "@/components/VoiceTalk";
 import { Burst } from "@/components/fx";
 import { sfx } from "@/lib/fx";
+import { track } from "@/lib/analytics";
 
 type Mode = "haggle" | "debate";
 type Msg = { role: "user" | "assistant"; content: string };
@@ -48,6 +50,13 @@ const tx = {
   },
 };
 
+function ArenaLimit({ text }: { text: string }) {
+  useEffect(() => {
+    track("limit_hit");
+  }, []);
+  return <div className="card warn">{text}</div>;
+}
+
 export default function ArenaPage() {
   const { s, lang, ready, update, addXp, addBadge } = useGame();
   const x = tx[lang];
@@ -69,6 +78,7 @@ export default function ArenaPage() {
   const endRef = useRef<HTMLDivElement>(null);
   const [voiceOk, setVoiceOk] = useState(false);
   const [hint, setHint] = useState("");
+  const [care, setCare] = useState<CareKind>("none");
   // Актуальные значения для колбэков распознавания: onFinal приходит из замыкания старого рендера.
   const msgsRef = useRef<Msg[]>([]);
   const priceRef = useRef(0);
@@ -83,6 +93,7 @@ export default function ArenaPage() {
     send: (t) => sendRef.current(t, true),
     onInterim: (t) => setInput(t),
     onPrivate: () => safetyRef.current(),
+    onCare: (k) => setCare(k),
   });
   msgsRef.current = msgs;
   priceRef.current = price;
@@ -112,6 +123,7 @@ export default function ArenaPage() {
   const ds = mode === "debate" ? DEBATES.find((d) => d.id === sid) : undefined;
 
   function begin(m: Mode, id: string) {
+    track("finny_chat_started");
     setMode(m);
     setSid(id);
     msgsRef.current = [];
@@ -140,10 +152,15 @@ export default function ArenaPage() {
     setErr("");
     setHint("");
     setInput("");
-    // фильтр личных данных проходят и набранный, и распознанный голосом текст
+    // фильтр личных данных и тревожных слов: текст не уходит в модель
     if (containsPrivateData(text)) {
       showSafety();
       return { reply: SAFETY_REPLY[lang], over: false };
+    }
+    const kind = careKind(text);
+    if (kind !== "none") {
+      setCare(kind);
+      return { reply: careReply(kind, lang), over: false };
     }
     if (!counted.current) {
       counted.current = true;
@@ -245,7 +262,7 @@ export default function ArenaPage() {
         <p className="muted">
           {x.rounds}: {Math.min(used, ARENA_ROUNDS_PER_DAY)}/{ARENA_ROUNDS_PER_DAY}
         </p>
-        {limitReached && <div className="card warn">{x.limit}</div>}
+        {limitReached && <ArenaLimit text={x.limit} />}
         <button className="card hero" style={{ width: "100%", textAlign: "start", cursor: "pointer" }} disabled={limitReached} onClick={() => { setMode("haggle"); setView("pick"); }}>
           <h2>🤝 {x.haggle}</h2>
           <p className="muted" style={{ margin: 0 }}>{x.haggleD}</p>
@@ -306,6 +323,8 @@ export default function ArenaPage() {
           </div>
         )}
       </div>
+
+      {care !== "none" && <CareCard kind={care} lang={lang} onClose={() => setCare("none")} />}
 
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
         <span className="muted">{x.turns}: {turnsLeft}</span>

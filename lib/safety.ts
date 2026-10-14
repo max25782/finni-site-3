@@ -18,6 +18,83 @@ export function containsPrivateData(text: string): boolean {
   return PATTERNS.some((p) => p.test(text));
 }
 
+// Тревожные формулировки: сообщение НЕ уходит в модель и не логируется.
+const DISTRESS_RE: RegExp[] = [
+  /мне\s+грустн/i,
+  /грустн/i,
+  /мне\s+страшн/i,
+  /страшн/i,
+  /мне\s+больн/i,
+  /больно/i,
+  /обижают/i,
+  /меня\s+обиж/i,
+  /меня\s+бь/i,
+  /избивают/i,
+  /ненавижу\s+себя/i,
+  /мне\s+плохо/i,
+  /очень\s+плохо/i,
+  /депресс/i,
+  /паническ/i,
+  /עצוב/i,
+  /מפחד/i,
+  /כואב/i,
+  /מעליב/i,
+  /מציק/i,
+  /בריונ/i,
+];
+
+const HARM_RE: RegExp[] = [
+  /хочу\s+умере/i,
+  /не\s+хочу\s+жить/i,
+  /убить\s+себя/i,
+  /покончить/i,
+  /суицид/i,
+  /самоубий/i,
+  /резать\s+себя/i,
+  /порезать\s+себя/i,
+  /не\s+хочу\s+больше\s+жить/i,
+  /לא\s+רוצה\s+לחיות/i,
+  /להרוג\s+את\s+עצמ/i,
+  /להתאבד/i,
+  /התאבדות/i,
+  /לפגוע\s+בעצמ/i,
+];
+
+export type CareKind = "none" | "distress" | "harm";
+
+export function careKind(text: string): CareKind {
+  const t = text.trim();
+  if (!t) return "none";
+  if (HARM_RE.some((p) => p.test(t))) return "harm";
+  if (DISTRESS_RE.some((p) => p.test(t))) return "distress";
+  return "none";
+}
+
+export function containsDistress(text: string): boolean {
+  return careKind(text) !== "none";
+}
+
+export const CARE_TITLE = {
+  ru: "Поговори об этом со взрослым",
+  he: "דברו על זה עם מבוגר",
+};
+
+export const DISTRESS_REPLY = {
+  ru: "Мне жаль, что тебе сейчас тяжело. Расскажи об этом маме или папе — они помогут.",
+  he: "עצוב לי שקשה לך עכשיו. ספרו על זה לאמא או לאבא — הם יעזרו.",
+};
+
+// ЭРАН 1201: бесплатная линия эмоциональной поддержки в Израиле. Перед релизом проверить номер и языки.
+export const HARM_REPLY = {
+  ru: "Это важно. Скажи об этом сразу взрослому рядом с тобой. Можно также позвонить в ЭРАН 1201 — там помогут поговорить.",
+  he: "זה חשוב. ספרו על זה מיד למבוגר לידכם. אפשר גם להתקשר לער״ן 1201 — שם אפשר לדבר.",
+};
+
+export function careReply(kind: CareKind, lang: "ru" | "he"): string {
+  if (kind === "harm") return HARM_REPLY[lang];
+  return DISTRESS_REPLY[lang];
+}
+
 export const SAFETY_REPLY = {
   ru:
     "🛑 Стоп-стоп! Такие данные нельзя отправлять в интернет. Даже мне.\n\n" +

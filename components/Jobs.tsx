@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useGame } from "@/lib/store";
-import { childClaim, childPropose, closeJob, fmt, LIMITS, negotiate, type Job, type Res } from "@/lib/real";
+import { fmt, LIMITS, type Job, type Res } from "@/lib/real";
+import { ioClaim, ioClose, ioNegotiate, ioPropose } from "@/lib/real-io";
 
 const ERR: Record<string, { ru: string; he: string }> = {
   title: { ru: "Напиши, что именно сделаешь (хотя бы 3 буквы).", he: "כתבי מה בדיוק תעשי (לפחות 3 אותיות)." },
@@ -30,19 +31,20 @@ export default function Jobs() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs.map((j) => j.status).join()]);
 
-  const run = (res: Res, onOk?: (j?: Job) => void) => {
-    if ("error" in res) {
-      const e = ERR[res.error];
-      setMsg(e ? e[lang] : res.error);
+  const run = async (res: Res | Promise<Res>, onOk?: (j?: Job) => void) => {
+    const out = await res;
+    if ("error" in out) {
+      const e = ERR[out.error];
+      setMsg(e ? e[lang] : out.error);
       return;
     }
     setMsg("");
-    update({ real: res.real });
-    onOk?.(res.job);
+    update({ real: out.real });
+    onOk?.(out.job);
   };
 
   const propose = () => {
-    run(childPropose(s.real, title, done, Number(price)), () => {
+    void run(ioPropose(s.real, title, done, Number(price)), () => {
       addXp(5);
       setTitle("");
       setDone("");
@@ -97,7 +99,7 @@ export default function Jobs() {
                   <button
                     className="btn"
                     onClick={() =>
-                      run(negotiate(s.real, j.id, "child", { t: "accept" }), () => {
+                      void run(ioNegotiate(s.real, j.id, "child", { t: "accept" }), () => {
                         addXp(10);
                         addBadge("job_dealer");
                       })
@@ -105,14 +107,14 @@ export default function Jobs() {
                   >
                     {L("Согласна", "מסכימה")}
                   </button>
-                  <button className="btn secondary" onClick={() => run(negotiate(s.real, j.id, "child", { t: "decline" }))}>
+                  <button className="btn secondary" onClick={() => void run(ioNegotiate(s.real, j.id, "child", { t: "decline" }))}>
                     {L("Отказаться", "לוותר")}
                   </button>
                 </div>
                 {canCounter ? (
                   <div className="row" style={{ marginTop: 8 }}>
                     <input type="number" inputMode="numeric" style={{ maxWidth: 120 }} value={counter[j.id] ?? ""} onChange={(e) => setCounter({ ...counter, [j.id]: e.target.value })} placeholder="₪" />
-                    <button className="btn secondary" disabled={!counter[j.id]} onClick={() => run(negotiate(s.real, j.id, "child", { t: "counter", shekel: Number(counter[j.id]) }))}>
+                    <button className="btn secondary" disabled={!counter[j.id]} onClick={() => void run(ioNegotiate(s.real, j.id, "child", { t: "counter", shekel: Number(counter[j.id]) }))}>
                       {L("Предложить свою цену", "להציע מחיר משלי")}
                     </button>
                   </div>
@@ -122,16 +124,16 @@ export default function Jobs() {
               </>
             )}
             {j.status === "negotiating" && j.turn === "parent" && (
-              <button className="btn secondary" onClick={() => run(closeJob(s.real, j.id, "child"))}>
+              <button className="btn secondary" onClick={() => void run(ioClose(s.real, j.id, "child"))}>
                 {L("Отозвать", "לבטל")}
               </button>
             )}
             {j.status === "agreed" && (
               <div className="row">
-                <button className="btn" onClick={() => run(childClaim(s.real, j.id))}>
+                <button className="btn" onClick={() => void run(ioClaim(s.real, j.id))}>
                   ✅ {L("Сделано!", "עשיתי!")}
                 </button>
-                <button className="btn secondary" onClick={() => run(closeJob(s.real, j.id, "child"))}>
+                <button className="btn secondary" onClick={() => void run(ioClose(s.real, j.id, "child"))}>
                   {L("Отменить", "לבטל")}
                 </button>
               </div>

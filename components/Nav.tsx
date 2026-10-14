@@ -8,6 +8,7 @@ import { setSound } from "@/lib/fx";
 
 const ITEMS = [
   { href: "/", key: "navHome", icon: "🏠" },
+  { href: "/charge", key: "navCharge", icon: "🔋" },
   { href: "/mission", key: "navMission", icon: "🎯" },
   { href: "/quest", key: "navQuest", icon: "🎮" },
   { href: "/chat", key: "navChat", icon: "🦝" },
@@ -18,15 +19,16 @@ const ITEMS = [
 
 export default function Nav() {
   const path = usePathname();
-  const { t, s } = useGame();
+  const { t, s, ready } = useGame();
   useEffect(() => {
     document.documentElement.dataset.big = s.fxBig ? "1" : "0";
     document.documentElement.dataset.motion = s.fxMotion ? "on" : "off";
     setSound(s.fxSound);
   }, [s.fxBig, s.fxMotion, s.fxSound]);
+  if (!ready) return <nav className="nav" aria-hidden="true" />;
   return (
     <nav className="nav">
-      {ITEMS.map((i) => (
+      {ITEMS.filter((i) => i.href !== "/charge" || s.chargeOn).map((i) => (
         <Link key={i.href} href={i.href} className={path === i.href ? "active" : ""}>
           <span className="ico">{i.icon}</span>
           {t(i.key)}
