@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { L } from "@/lib/missions/types";
+import { isolateMath } from "@/lib/bidi";
 import { panelsFor } from "@/lib/comics";
 import { Panel } from "@/components/comic/Panel";
 
@@ -67,7 +68,8 @@ export function Stage({ kind, emoji, title, missionId, sceneId, slide = 0, slide
   const panels = panelsFor(missionId, sceneId, kind);
   // длинная история — листаем кадры по мере чтения карточек
   const pi = panels.length <= 1 ? 0 : Math.min(panels.length - 1, Math.floor((slide / Math.max(1, slides)) * panels.length));
-  const say = sayOverride ? sayOverride : mood === "good" ? pick(SAY_GOOD[lang], seed) : mood === "soft" ? pick(SAY_SOFT[lang], seed) : "";
+  const rawSay = sayOverride ? sayOverride : mood === "good" ? pick(SAY_GOOD[lang], seed) : mood === "soft" ? pick(SAY_SOFT[lang], seed) : "";
+  const say = rawSay ? isolateMath(rawSay, lang) : "";
   const result = mood === "good" ? "good" : mood === "soft" ? "soft" : null;
   return (
     <div className={`stage2 k-${kind}`}>
@@ -76,7 +78,7 @@ export function Stage({ kind, emoji, title, missionId, sceneId, slide = 0, slide
       </div>
       {title && (
         <div className="stage-cap">
-          <span className="stage-ic">{emoji}</span> {title}
+          <span className="stage-ic">{emoji}</span> {isolateMath(title, lang)}
         </div>
       )}
       {say && (
@@ -117,7 +119,7 @@ export function chunkText(text: string, max = 150): string[] {
 }
 
 /** Историю читаем по одной карточке: тап — следующая. Последняя — кнопка. */
-export function Slides({ text, nextLabel, tapLabel = "👆", onDone, onTick, onIndex }: { text: string; nextLabel: string; tapLabel?: string; onDone: () => void; onTick?: () => void; onIndex?: (i: number, n: number) => void }) {
+export function Slides({ text, nextLabel, tapLabel = "👆", onDone, onTick, onIndex, lang = "ru" }: { text: string; nextLabel: string; tapLabel?: string; onDone: () => void; onTick?: () => void; onIndex?: (i: number, n: number) => void; lang?: Lang }) {
   const chunks = useMemo(() => chunkText(text), [text]);
   const [i, setI] = useState(0);
   useEffect(() => {
@@ -135,7 +137,7 @@ export function Slides({ text, nextLabel, tapLabel = "👆", onDone, onTick, onI
   return (
     <>
       <div className="chunk" key={i} onClick={adv} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && adv()}>
-        {chunks[i]}
+        {isolateMath(chunks[i], lang)}
       </div>
       {chunks.length > 1 && (
         <div className="dots">
@@ -179,7 +181,7 @@ export function BonusTimer({ seconds, resetKey, lang }: { seconds: number; reset
         <span key={resetKey} style={{ animationDuration: `${seconds}s` }} />
       </div>
       <p className="tapnote" style={{ margin: "0 0 6px" }}>
-        {over ? (lang === "he" ? "בונוס מהירות נגמר. חשבו בנחת 🧠" : "Бонус за скорость вышел. Думай спокойно 🧠") : lang === "he" ? "⚡ החליטו מהר: בונוס +5 XP" : "⚡ Реши быстро: бонус +5 XP"}
+        {isolateMath(over ? (lang === "he" ? "בונוס מהירות נגמר. חשבו בנחת 🧠" : "Бонус за скорость вышел. Думай спокойно 🧠") : lang === "he" ? "⚡ החליטו מהר: בונוס +5 XP" : "⚡ Реши быстро: бонус +5 XP", lang)}
       </p>
     </>
   );
@@ -252,8 +254,8 @@ export function ResultText({ text, lang }: { text: string; lang: Lang }) {
   }
   return (
     <>
-      <p className="headline">{head}</p>
-      {rest && (open ? <p className="scenario">{rest}</p> : (
+      <p className="headline">{isolateMath(head, lang)}</p>
+      {rest && (open ? <p className="scenario">{isolateMath(rest, lang)}</p> : (
         <button className="more" onClick={() => setOpen(true)}>
           {lang === "he" ? "עוד ▾" : "Подробнее ▾"}
         </button>

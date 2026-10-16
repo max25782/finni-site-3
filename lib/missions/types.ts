@@ -1,4 +1,5 @@
 import type { Lang } from "../game";
+import { isolateMath } from "../bidi";
 
 export type L = { ru: string; he: string };
 export const L = (ru: string, he: string): L => ({ ru, he });
@@ -8,7 +9,12 @@ export type V = Record<string, number>;
 
 /** Текст: либо фиксированный, либо зависит от переменных. */
 export type T = L | ((v: V) => L);
-export const tx = (t: T, v: V, lang: Lang): string => (typeof t === "function" ? t(v)[lang] : t[lang]);
+export const tx = (t: T, v: V, lang: Lang): string => {
+  const raw = typeof t === "function" ? t(v)[lang] : t[lang];
+  return isolateMath(raw, lang);
+};
+
+export const tl = (l: L, lang: Lang): string => isolateMath(l[lang], lang);
 
 type Base = { id: string; skipIf?: (v: V) => boolean; hook?: T; chapter?: L };
 

@@ -1,4 +1,5 @@
 import type { Lang } from "./game";
+import { isolateMath } from "./bidi";
 
 type Dict = Record<string, { ru: string; he: string }>;
 
@@ -92,5 +93,6 @@ export const D: Dict = {
 };
 
 export function tr(key: string, lang: Lang): string {
-  return D[key]?.[lang] ?? key;
+  const raw = D[key]?.[lang] ?? key;
+  return isolateMath(raw, lang);
 }

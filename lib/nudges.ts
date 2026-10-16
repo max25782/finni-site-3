@@ -1,5 +1,6 @@
 // Шаблонные подсказки Финни: не раскрывают ответ, задают один вопрос. Без API, бесплатно.
 import type { Lang } from "./game";
+import { isolateMath } from "./bidi";
 
 type Pool = Record<Lang, string[]>;
 const P = (ru: string[], he: string[]): Pool => ({ ru, he });
@@ -48,4 +49,5 @@ export const SOFT2: Pool = P(
   ["שתי הפתעות ברצף. מה משותף להחלטות האלה? 🔍", "בואו נאט: מה שמתם לב בצעדים האחרונים? 📝"]
 );
 
-export const nudgePick = (p: Pool, lang: Lang, seed: number) => p[lang][Math.abs(seed) % p[lang].length];
+export const nudgePick = (p: Pool, lang: Lang, seed: number) =>
+  isolateMath(p[lang][Math.abs(seed) % p[lang].length], lang);

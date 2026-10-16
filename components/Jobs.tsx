@@ -75,7 +75,7 @@ export default function Jobs() {
       <label htmlFor="jd">{L("Готово, когда… (необязательно)", "מוכן כש… (לא חובה)")}</label>
       <input id="jd" type="text" value={done} maxLength={120} onChange={(e) => setDone(e.target.value)} placeholder={L("например: снаружи и внутри чисто", "למשל: נקי מבחוץ ומבפנים")} />
       <label htmlFor="jp">{L("Моя цена, ₪", "המחיר שלי, ₪")}</label>
-      <input id="jp" type="number" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value)} />
+      <input id="jp" type="number" dir="ltr" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
       <p style={{ marginTop: 12 }}>
         <button className="btn" onClick={propose} disabled={!title.trim() || !price}>
           {L("Предложить родителям", "להציע להורים")}
@@ -113,7 +113,7 @@ export default function Jobs() {
                 </div>
                 {canCounter ? (
                   <div className="row" style={{ marginTop: 8 }}>
-                    <input type="number" inputMode="numeric" style={{ maxWidth: 120 }} value={counter[j.id] ?? ""} onChange={(e) => setCounter({ ...counter, [j.id]: e.target.value })} placeholder="₪" />
+                    <input type="number" dir="ltr" inputMode="decimal" style={{ maxWidth: 120 }} value={counter[j.id] ?? ""} onChange={(e) => setCounter({ ...counter, [j.id]: e.target.value })} placeholder="₪" />
                     <button className="btn secondary" disabled={!counter[j.id]} onClick={() => void run(ioNegotiate(s.real, j.id, "child", { t: "counter", shekel: Number(counter[j.id]) }))}>
                       {L("Предложить свою цену", "להציע מחיר משלי")}
                     </button>

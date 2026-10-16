@@ -1,3 +1,4 @@
+import { isolateMath } from "./bidi";
 import { todayKey } from "./game";
 import type { Lang } from "./game";
 
@@ -227,5 +228,5 @@ export const CHARGE_COPY = {
 };
 
 export function tx(copy: { ru: string; he: string }, lang: Lang): string {
-  return copy[lang];
+  return isolateMath(copy[lang], lang);
 }

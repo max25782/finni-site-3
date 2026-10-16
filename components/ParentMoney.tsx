@@ -5,12 +5,13 @@ import { useGame } from "@/lib/store";
 import { bridgeable, fmt, ledgerBalance, ledgerCsv, LIMITS, type Job, type LedgerEntry, type Res } from "@/lib/real";
 import { cloudOnline, saveSettings } from "@/lib/cloud";
 import { ioBridge, ioConfirm, ioLedger, ioNegotiate, ioParentCreate, ioReturn } from "@/lib/real-io";
+import { isolateMath } from "@/lib/bidi";
 
 const RATES = [0, 5, 10, 20, 50, 100];
 
 export default function ParentMoney() {
   const { s, lang, update } = useGame();
-  const L = (ru: string, he: string) => (lang === "he" ? he : ru);
+  const L = (ru: string, he: string) => (lang === "he" ? isolateMath(he, lang) : ru);
   const r = s.real;
   const [msg, setMsg] = useState("");
   const [counter, setCounter] = useState<Record<string, string>>({});
@@ -101,7 +102,7 @@ export default function ParentMoney() {
               </div>
               {j.events.filter((e) => e.kind === "counter").length < LIMITS.maxCounters && (
                 <div className="row" style={{ marginTop: 8 }}>
-                  <input type="number" inputMode="numeric" style={{ maxWidth: 120 }} placeholder="₪" value={counter[j.id] ?? ""} onChange={(e) => setCounter({ ...counter, [j.id]: e.target.value })} />
+                  <input type="number" dir="ltr" inputMode="decimal" style={{ maxWidth: 120 }} placeholder="₪" value={counter[j.id] ?? ""} onChange={(e) => setCounter({ ...counter, [j.id]: e.target.value })} />
                   <button className="btn secondary" disabled={!counter[j.id]} onClick={() => void run(ioNegotiate(r, j.id, "parent", { t: "counter", shekel: Number(counter[j.id]) }))}>
                     {L("Предложить свою цену", "להציע מחיר משלכם")}
                   </button>
@@ -132,7 +133,7 @@ export default function ParentMoney() {
       <input type="text" placeholder={L("Что сделать", "מה לעשות")} value={nt} maxLength={LIMITS.titleMax} onChange={(e) => setNt(e.target.value)} />
       <input type="text" placeholder={L("Готово, когда…", "מוכן כש…")} value={nd} maxLength={120} onChange={(e) => setNd(e.target.value)} style={{ marginTop: 6 }} />
       <div className="row" style={{ marginTop: 6 }}>
-        <input type="number" inputMode="numeric" placeholder="₪" style={{ maxWidth: 120 }} value={np} onChange={(e) => setNp(e.target.value)} />
+        <input type="number" dir="ltr" inputMode="decimal" placeholder="₪" style={{ maxWidth: 120 }} value={np} onChange={(e) => setNp(e.target.value)} />
         <button
           className="btn secondary"
           disabled={!nt.trim() || !np}
@@ -176,7 +177,7 @@ export default function ParentMoney() {
         ))}
       </select>
       <label htmlFor="cp">{L("Лимит в неделю, ₪ (0 = мост не работает)", "תקרה שבועית, ₪ (0 = הגשר לא פועל)")}</label>
-      <input id="cp" type="number" inputMode="numeric" min={0} max={1000} value={r.weeklyCap / 100} onChange={(e) => { const weeklyCap = Math.max(0, Math.min(100000, Math.round(Number(e.target.value || 0) * 100))); update({ real: { ...r, weeklyCap } }); if (cloudOnline()) void saveSettings({ weeklyCap }); }} />
+      <input id="cp" type="number" dir="ltr" inputMode="decimal" min={0} max={1000} value={r.weeklyCap / 100} onChange={(e) => { const weeklyCap = Math.max(0, Math.min(100000, Math.round(Number(e.target.value || 0) * 100))); update({ real: { ...r, weeklyCap } }); if (cloudOnline()) void saveSettings({ weeklyCap }); }} />
       {r.rate > 0 && r.weeklyCap > 0 && (
         <p>
           {L("На этой неделе заработано игровых", "השבוע הרוויחה במשחק")}: {r.weekGame} ₪ · {L("можно зачесть", "אפשר לזכות")}: <b>{fmt(bridge)}</b>{" "}

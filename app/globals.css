@@ -112,6 +112,10 @@ input[type="text"], input[type="number"], select {
   width: 100%; font-size: 18px; padding: 12px 14px; border: 2px solid var(--line); border-radius: 14px; background: #fff; color: var(--ink);
   font-family: inherit;
 }
+[dir="rtl"] input[type="number"] {
+  direction: ltr;
+  text-align: start;
+}
 label { display: block; font-weight: 600; margin: 12px 0 6px; }
 
 .chat { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }

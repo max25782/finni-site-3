@@ -10,7 +10,8 @@ import Link from "next/link";
 import { useGame } from "@/lib/store";
 import { isMissionLocked, todayKey } from "@/lib/game";
 import { MISSIONS, missionById } from "@/lib/missions";
-import { firstIndex, nextIndex, tx, V, Scene, L, Mission } from "@/lib/missions/types";
+import { firstIndex, nextIndex, tx, tl, V, Scene, L, Mission } from "@/lib/missions/types";
+import { isolateMath } from "@/lib/bidi";
 import type { LogEntry } from "@/lib/game";
 import { BOOK_LABEL } from "@/lib/quests";
 import {
@@ -118,7 +119,7 @@ const TOPIC = { money: "💰", people: "🤝", mind: "🧠" } as const;
 function DebriefCard({ mission, e, lang }: { mission: Mission; e: LogEntry; lang: "ru" | "he" }) {
   const sc = mission.scenes.find((x) => x.id === e.id);
   if (!sc || (sc.kind !== "choice" && sc.kind !== "input" && sc.kind !== "split" && sc.kind !== "find")) return null;
-  const title = (sc.title ? sc.title[lang] : sc.id);
+  const title = sc.title ? tl(sc.title, lang) : sc.id;
   const book = sc.book ? BOOK_LABEL[sc.book as keyof typeof BOOK_LABEL] : null;
   let mid: React.ReactNode = null;
   if (sc.kind === "choice") {
@@ -127,19 +128,19 @@ function DebriefCard({ mission, e, lang }: { mission: Mission; e: LogEntry; lang
     mid = (
       <>
         <p>
-          <b>{ui.youChose[lang]}:</b> {tx(chosen.label, e.v, lang)}
+          <b>{tl(ui.youChose, lang)}:</b> {tx(chosen.label, e.v, lang)}
         </p>
         <p>
-          <b>{ui.happened[lang]}:</b> {r.outcome[lang]}
+          <b>{tl(ui.happened, lang)}:</b> {tl(r.outcome, lang)}
         </p>
         <p>
-          <b>{ui.ifOther[lang]}</b>
+          <b>{tl(ui.ifOther, lang)}</b>
         </p>
         <ul style={{ margin: 0, paddingInlineStart: 20 }}>
           {sc.options.map((o, i) =>
             i === e.c || o.disabled?.(e.v) ? null : (
               <li key={i} style={{ marginBottom: 6 }}>
-                <b>{tx(o.label, e.v, lang)}</b>: {o.apply(e.v).outcome[lang]}
+                <b>{tx(o.label, e.v, lang)}</b>: {tl(o.apply(e.v).outcome, lang)}
               </li>
             )
           )}
@@ -151,18 +152,18 @@ function DebriefCard({ mission, e, lang }: { mission: Mission; e: LogEntry; lang
     mid = (
       <>
         <p>
-          <b>{ui.youChose[lang]}:</b>{" "}
+          <b>{tl(ui.youChose, lang)}:</b>{" "}
           {sc.parts.map((p, i) => `${tx(p.label, e.v, lang)} ${e.a![i]}`).join(" · ")}
         </p>
         <p>
-          <b>{ui.happened[lang]}:</b> {r.outcome[lang]}
+          <b>{tl(ui.happened, lang)}:</b> {tl(r.outcome, lang)}
         </p>
       </>
     );
   } else if (sc.kind === "find") {
     mid = (
       <p>
-        <b>{ui.happened[lang]}:</b> 🚩 {e.c}/{sc.items.filter((i) => i.bad).length}
+        <b>{tl(ui.happened, lang)}:</b> 🚩 {e.c}/{sc.items.filter((i) => i.bad).length}
       </p>
     );
   } else if (sc.kind === "input") {
@@ -170,10 +171,10 @@ function DebriefCard({ mission, e, lang }: { mission: Mission; e: LogEntry; lang
     mid = (
       <>
         <p>
-          <b>{ui.yourNum[lang]}:</b> {e.c} {sc.unit ?? ""}
+          <b>{tl(ui.yourNum, lang)}:</b> {e.c} {sc.unit ?? ""}
         </p>
         <p>
-          <b>{ui.happened[lang]}:</b> {r.outcome[lang]}
+          <b>{tl(ui.happened, lang)}:</b> {tl(r.outcome, lang)}
         </p>
       </>
     );
@@ -187,8 +188,8 @@ function DebriefCard({ mission, e, lang }: { mission: Mission; e: LogEntry; lang
       {mid}
       {sc.lesson && (
         <p className="muted">
-          💡 {book ? `${ui.fromBook[lang]} «${book[lang]}»: ` : ""}
-          {sc.lesson[lang]}
+          💡 {book ? `${tl(ui.fromBook, lang)} «${book[lang]}»: ` : ""}
+          {tl(sc.lesson!, lang)}
         </p>
       )}
     </div>
@@ -223,7 +224,7 @@ function ThinkPrompt({
   const sid = sceneId ?? "reflect";
   return (
     <div className="card" style={{ marginTop: 10 }}>
-      {mission.reflection && <p>🤔 {mission.reflection[lang]}</p>}
+      {mission.reflection && <p>🤔 {tl(mission.reflection, lang)}</p>}
       {askWhy && mission.reflection && why === "open" && (
         <div className="options" style={{ marginTop: 8 }}>
           {REASONS.map((r) => (
@@ -237,7 +238,7 @@ function ThinkPrompt({
                 setWhy("done");
               }}
             >
-              {r[lang]}
+              {isolateMath(r[lang], lang)}
             </button>
           ))}
           <button
@@ -253,7 +254,7 @@ function ThinkPrompt({
           </button>
         </div>
       )}
-      {mission.twist && <p className="muted">🔁 {mission.twist[lang]}</p>}
+      {mission.twist && <p className="muted">🔁 {tl(mission.twist, lang)}</p>}
     </div>
   );
 }
@@ -271,13 +272,13 @@ function OfflineFollowupCard({
 }) {
   return (
     <div className="card" style={{ marginBottom: 12 }}>
-      <p>🌿 {ui.offlineFollowup[lang]}</p>
+      <p>🌿 {tl(ui.offlineFollowup, lang)}</p>
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
         <button type="button" className="btn" onClick={() => { hookOfflineFollowup(missionId, sceneId, "yes"); onDone(); }}>
-          {ui.offlineYes[lang]}
+          {tl(ui.offlineYes, lang)}
         </button>
         <button type="button" className="btn secondary" onClick={() => { hookOfflineFollowup(missionId, sceneId, "no"); onDone(); }}>
-          {ui.offlineNo[lang]}
+          {tl(ui.offlineNo, lang)}
         </button>
       </div>
     </div>
@@ -419,25 +420,25 @@ export default function MissionPage() {
       <>
         <div className="card good">
           <Burst emojis={["🏆", "🪙", "🎉", "⭐", "✨"]} count={30} />
-          <h1>🏆 {ui.done[lang]}</h1>
+          <h1>🏆 {tl(ui.done, lang)}</h1>
           <p>
             {m.summary(v).map((r, i) => (
               <span key={i}>
-                {r.label[lang]}: <b>{typeof r.value === "string" ? r.value : r.value[lang]}</b>
+                {tl(r.label, lang)}: <b>{typeof r.value === "string" ? isolateMath(r.value, lang) : tl(r.value, lang)}</b>
                 <br />
               </span>
             ))}
           </p>
           <p>
-            🐷 {ui.toBalance[lang]}: <b>+{celebrate.balance} ₪</b>
-            <br />⭐ {ui.xp[lang]}: <b>{celebrate.xp}</b>
+            🐷 {tl(ui.toBalance, lang)}: <b>{isolateMath(`+${celebrate.balance} ₪`, lang)}</b>
+            <br />⭐ {tl(ui.xp, lang)}: <b>{celebrate.xp}</b>
           </p>
         </div>
-        <ShareBox title={m.title[lang]} />
+        <ShareBox title={tl(m.title, lang)} />
         {m.teaser && (
           <div className="card hero">
-            <h2>🔜 {ui.tomorrow[lang]}</h2>
-            <p>{m.teaser[lang]}</p>
+            <h2>🔜 {tl(ui.tomorrow, lang)}</h2>
+            <p>{tl(m.teaser, lang)}</p>
           </div>
         )}
         <Link className="btn" href="/">
@@ -461,26 +462,26 @@ export default function MissionPage() {
             onDone={() => update({ offlineFollowup: null })}
           />
         )}
-        <h1>🗺️ {ui.season[lang]}</h1>
+        <h1>🗺️ {tl(ui.season, lang)}</h1>
         <p className="muted">
-          {ui.seasonNote[lang]} · {s.missionsDone.filter((id) => MISSIONS.some((m) => m.id === id)).length}/{MISSIONS.length}
+          {tl(ui.seasonNote, lang)} · {s.missionsDone.filter((id) => MISSIONS.some((m) => m.id === id)).length}/{MISSIONS.length}
         </p>
         <div className="bar" style={{ marginBottom: 12 }}>
           <span style={{ width: `${Math.round((100 * s.missionsDone.filter((id) => MISSIONS.some((m) => m.id === id)).length) / MISSIONS.length)}%` }} />
         </div>
-        {limitReached && <LimitHitCard text={ui.limit[lang]} />}
+        {limitReached && <LimitHitCard text={tl(ui.limit, lang)} />}
         {MISSIONS.map((m, i) => {
           const done = s.missionsDone.includes(m.id);
           const locked = isMissionLocked(s, i, MISSIONS.map((x) => x.id));
           return (
             <div key={m.id} className="card" style={locked ? { opacity: 0.55 } : undefined}>
               <p className="muted" style={{ margin: 0 }}>
-                {ui.day[lang]} {i + 1} {done ? "✅" : locked ? "🔒" : ""}
+                {tl(ui.day, lang)} {i + 1} {done ? "✅" : locked ? "🔒" : ""}
               </p>
               <h2 style={{ marginTop: 4 }}>
-                {m.icon} {m.title[lang]}
+                {m.icon} {tl(m.title, lang)}
               </h2>
-              {!locked && <p>{m.blurb[lang]}</p>}
+              {!locked && <p>{tl(m.blurb, lang)}</p>}
               <p className="muted">
                 ⏱️ ~{m.minutes} {lang === "he" ? "דק׳" : "мин"}
                 {!locked && <> · 📚 {m.books.map((b) => BOOK_LABEL[b as keyof typeof BOOK_LABEL]?.[lang] ?? b).join(", ")}</>}
@@ -491,10 +492,10 @@ export default function MissionPage() {
                   disabled={limitReached}
                   onClick={() => startMission(m.id, m.initialVars, firstIndex(m.scenes, m.initialVars))}
                 >
-                  {done ? ui.again[lang] : ui.start[lang]}
+                  {done ? tl(ui.again, lang) : tl(ui.start, lang)}
                 </button>
               )}
-              {locked && <p className="muted">{ui.locked[lang]}</p>}
+              {locked && <p className="muted">{tl(ui.locked, lang)}</p>}
             </div>
           );
         })}
@@ -542,9 +543,9 @@ export default function MissionPage() {
 
   const Status = () => (
     <div className="row" style={{ marginBottom: 8 }}>
-      <span className="pill">💰 {v.cash} ₪</span>
-      {v.qty > 0 && <span className="pill">📦 {v.stock}</span>}
-      {v.price > 0 && <span className="pill">🏷️ {v.price} ₪</span>}
+      <span className="pill">{isolateMath(`💰 ${v.cash} ₪`, lang)}</span>
+      {v.qty > 0 && <span className="pill">{isolateMath(`📦 ${v.stock}`, lang)}</span>}
+      {v.price > 0 && <span className="pill">{isolateMath(`🏷️ ${v.price} ₪`, lang)}</span>}
       <span className="pill pop" key={run.xp}>⭐ +{run.xp} XP</span>
       {combo >= 2 && <span className="pill combo" key={combo}>🔥 x{combo}</span>}
     </div>
@@ -556,13 +557,13 @@ export default function MissionPage() {
       <Status />
       {scene.chapter && (
         <p className="pill" style={{ marginBottom: 8 }}>
-          📖 {scene.chapter[lang]}
+          📖 {tl(scene.chapter, lang)}
         </p>
       )}
       <Stage
         kind={scene.kind}
         emoji={"icon" in scene && scene.icon ? scene.icon : "🦝"}
-        title={"title" in scene && scene.title ? scene.title[lang] : undefined}
+        title={"title" in scene && scene.title ? tl(scene.title, lang) : undefined}
         missionId={mission.id}
         sceneId={scene.id}
         slide={slide.i}
@@ -595,7 +596,7 @@ export default function MissionPage() {
         className="btn secondary"
         style={{ padding: "10px 14px", fontSize: 15 }}
         onClick={() => {
-          if (confirm(ui.quit[lang] + "?")) abandonMission();
+          if (confirm(tl(ui.quit, lang) + "?")) abandonMission();
         }}
       >
         ✖
@@ -632,7 +633,7 @@ export default function MissionPage() {
                   go(patch, scene.xp ?? 0);
                 }}
               >
-                {ui.offlineDo[lang]}
+                {tl(ui.offlineDo, lang)}
               </button>
               <button
                 className="btn secondary"
@@ -641,13 +642,13 @@ export default function MissionPage() {
                   go(patch, scene.xp ?? 0);
                 }}
               >
-                {ui.offlineSkip[lang]}
+                {tl(ui.offlineSkip, lang)}
               </button>
             </div>
           </>
         ) : (
           <>
-            <Slides text={tx(scene.text, v, lang)} nextLabel={ui.next[lang]} tapLabel={lang === "he" ? "👆 הקישו להמשך" : "👆 тап, чтобы читать дальше"} onTick={() => sfx("tick")} onIndex={(i, n) => setSlide((o) => (o.i === i && o.n === n ? o : { i, n }))} onDone={() => { sfx("good"); go(patch, scene.xp ?? 0); }} />
+            <Slides lang={lang} text={tx(scene.text, v, lang)} nextLabel={tl(ui.next, lang)} tapLabel={lang === "he" ? "👆 הקישו להמשך" : "👆 тап, чтобы читать дальше"} onTick={() => sfx("tick")} onIndex={(i, n) => setSlide((o) => (o.i === i && o.n === n ? o : { i, n }))} onDone={() => { sfx("good"); go(patch, scene.xp ?? 0); }} />
             <Hook />
           </>
         )}
@@ -668,7 +669,7 @@ export default function MissionPage() {
         />
         <Hook />
         <button className="btn" onClick={() => go(res.patch, res.xp + (res.bonus ?? 0), res.badge, res.c)}>
-          {ui.next[lang]}
+          {tl(ui.next, lang)}
         </button>
       </>
     ) : (
@@ -702,7 +703,7 @@ export default function MissionPage() {
                   showWhy = false;
                 }
                 setChoiceReflect(showWhy);
-                setRes({ outcome: r.outcome[lang], patch: clean(r.vars), xp: r.xp, badge: r.badge, c: i, bonus, mood: good ? "good" : "soft" });
+                setRes({ outcome: tl(r.outcome, lang), patch: clean(r.vars), xp: r.xp, badge: r.badge, c: i, bonus, mood: good ? "good" : "soft" });
               }}
             >
               {tx(o.label, v, lang)}
@@ -718,14 +719,14 @@ export default function MissionPage() {
         <ResultBox r={res} cls={res.good ? "good" : "warn"} />
         <Hook />
         <button className="btn" onClick={() => go(patch, res.xp + (res.bonus ?? 0), undefined, res.good ? 1 : 0)}>
-          {ui.next[lang]}
+          {tl(ui.next, lang)}
         </button>
       </>
     ) : (
       <>
         <p className="scenario">{tx(scene.text, v, lang)}</p>
-        <label htmlFor="ans">{ui.yourAnswer[lang]}</label>
-        <input id="ans" type="number" inputMode="decimal" value={Number.isNaN(num) ? "" : num} onChange={(e) => setNum(e.target.value === "" ? NaN : Number(e.target.value))} />
+        <label htmlFor="ans">{tl(ui.yourAnswer, lang)}</label>
+        <input id="ans" type="number" dir="ltr" inputMode="decimal" value={Number.isNaN(num) ? "" : num} onChange={(e) => setNum(e.target.value === "" ? NaN : Number(e.target.value))} />
         <p>
           <button
             className="btn"
@@ -757,7 +758,7 @@ export default function MissionPage() {
               });
             }}
           >
-            {ui.check[lang]}
+            {tl(ui.check, lang)}
           </button>
         </p>
       </>
@@ -771,7 +772,7 @@ export default function MissionPage() {
         <ResultBox r={res} />
         <Hook />
         <button className="btn" onClick={() => go(res.patch, res.xp, undefined, res.c, res.a)}>
-          {ui.next[lang]}
+          {tl(ui.next, lang)}
         </button>
       </>
     ) : (
@@ -794,7 +795,7 @@ export default function MissionPage() {
             className="btn"
             onClick={() => {
               const r = scene.apply(val, v);
-              setRes({ outcome: r.outcome[lang], patch: clean(r.vars), xp: scene.xp, c: val });
+              setRes({ outcome: tl(r.outcome, lang), patch: clean(r.vars), xp: scene.xp, c: val });
             }}
           >
             OK
@@ -812,7 +813,7 @@ export default function MissionPage() {
           <ul style={{ margin: 0, paddingInlineStart: 20 }}>
             {scene.items.map((it, i) => (
               <li key={i} style={{ marginBottom: 6 }}>
-                {it.bad ? "🚩" : "✅"} <b>{tx(it.text, v, lang)}</b>: {it.why[lang]}
+                {it.bad ? "🚩" : "✅"} <b>{tx(it.text, v, lang)}</b>: {tl(it.why, lang)}
               </li>
             ))}
           </ul>
@@ -820,13 +821,13 @@ export default function MissionPage() {
         </div>
         <Hook />
         <button className="btn" onClick={() => go(res.patch, res.xp, undefined, res.c)}>
-          {ui.next[lang]}
+          {tl(ui.next, lang)}
         </button>
       </>
     ) : (
       <>
         <p className="scenario">{tx(scene.text, v, lang)}</p>
-        <p className="muted">{ui.findNote[lang]}</p>
+        <p className="muted">{tl(ui.findNote, lang)}</p>
         <div className="options">
           {scene.items.map((it, i) => (
             <button
@@ -853,14 +854,14 @@ export default function MissionPage() {
               const xp = Math.max(4, Math.round((scene.xp * Math.max(0, hits - falseA)) / Math.max(1, bads)));
               const patch = clean(scene.apply?.({ hits, misses, false: falseA }, v));
               setRes({
-                outcome: ui.findResult[lang].replace("{h}", String(hits)).replace("{b}", String(bads)).replace("{f}", String(falseA)),
+                outcome: tl(ui.findResult, lang).replace("{h}", String(hits)).replace("{b}", String(bads)).replace("{f}", String(falseA)),
                 patch,
                 xp,
                 c: hits,
               });
             }}
           >
-            {ui.check[lang]}
+            {tl(ui.check, lang)}
           </button>
         </p>
       </>
@@ -874,14 +875,14 @@ export default function MissionPage() {
         <ResultBox r={res} />
         <Hook />
         <button className="btn" onClick={() => go(res.patch, res.xp, undefined, res.c, res.a)}>
-          {ui.next[lang]}
+          {tl(ui.next, lang)}
         </button>
       </>
     ) : (
       <>
         <p className="scenario">{tx(scene.text, v, lang)}</p>
         <p style={{ fontSize: 22, fontWeight: 800 }}>
-          {ui.left[lang]}: {left} {unitText(scene.unit ?? "₪", lang)}
+          {tl(ui.left, lang)}: {left} {unitText(scene.unit ?? "₪", lang)}
         </p>
         {scene.parts.map((p, i) => {
           const maxP = p.max ? p.max(v) : total;
@@ -904,7 +905,7 @@ export default function MissionPage() {
             disabled={left !== 0}
             onClick={() => {
               const r = scene.apply(alloc, v);
-              setRes({ outcome: r.outcome[lang], patch: clean(r.vars), xp: scene.xp, c: 0, a: alloc });
+              setRes({ outcome: tl(r.outcome, lang), patch: clean(r.vars), xp: scene.xp, c: 0, a: alloc });
             }}
           >
             OK
@@ -925,16 +926,16 @@ export default function MissionPage() {
             </span>
           ))}
         </p>
-        <h2>🔍 {ui.debrief[lang]}</h2>
-        <p className="muted">{ui.debriefNote[lang]}</p>
+        <h2>🔍 {tl(ui.debrief, lang)}</h2>
+        <p className="muted">{tl(ui.debriefNote, lang)}</p>
         <ThinkPrompt mission={mission} lang={lang} />
         {(run.log ?? []).map((e, i) => (
           <DebriefCard key={i} mission={mission} e={e} lang={lang} />
         ))}
         <div className="card good">
-          <h2>🧠 {ui.takeaways[lang]}</h2>
-          <p>💰 {mission.takeaways.money[lang]}</p>
-          <p>🤝 {mission.takeaways.people[lang]}</p>
+          <h2>🧠 {tl(ui.takeaways, lang)}</h2>
+          <p>💰 {tl(mission.takeaways.money, lang)}</p>
+          <p>🤝 {tl(mission.takeaways.people, lang)}</p>
         </div>
         <MissionRating missionId={mission.id} lang={lang} />
         <button
@@ -945,7 +946,7 @@ export default function MissionPage() {
             finishMission(mission.id, bonus, gain, mission.badges(v));
           }}
         >
-          🏆 {ui.done[lang]}
+          🏆 {tl(ui.done, lang)}
         </button>
       </>
     );

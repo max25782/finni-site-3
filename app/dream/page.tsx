@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { useGame } from "@/lib/store";
 import Jobs from "@/components/Jobs";
+import { isolateMath } from "@/lib/bidi";
 import { fmt, ledgerBalance, STEPS, toAgorot, weeklyPace } from "@/lib/real";
 
 export default function DreamPage() {
   const { s, lang, t, ready, update, addBadge } = useGame();
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
-  const L = (ru: string, he: string) => (lang === "he" ? he : ru);
+  const L = (ru: string, he: string) => (lang === "he" ? isolateMath(he, lang) : ru);
 
   if (!ready) return null;
 
@@ -50,7 +51,7 @@ export default function DreamPage() {
           <label htmlFor="dn">{t("dreamName")}</label>
           <input id="dn" type="text" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
           <label htmlFor="dp">{L("Сколько она стоит в жизни, ₪", "כמה היא עולה באמת, ₪")}</label>
-          <input id="dp" type="number" inputMode="numeric" value={price} onChange={(e) => setPrice(e.target.value)} />
+          <input id="dp" type="number" dir="ltr" inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} />
           <p style={{ marginTop: 16 }}>
             <button className="btn" onClick={create} disabled={!name.trim() || !price}>
               {t("dreamCreate")}

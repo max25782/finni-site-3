@@ -14,6 +14,8 @@ import { VoiceTalk } from "@/components/VoiceTalk";
 import { Burst } from "@/components/fx";
 import { sfx } from "@/lib/fx";
 import { track } from "@/lib/analytics";
+import { isolateMath } from "@/lib/bidi";
+import { tl } from "@/lib/missions/types";
 
 type Mode = "haggle" | "debate";
 type Msg = { role: "user" | "assistant"; content: string };
@@ -335,10 +337,10 @@ export default function ArenaPage() {
 
       <div className="chat">
         <div className="bubble finni">
-          {mode === "haggle" ? hs?.intro[lang] : `${ds?.thesis[lang]} 🦝`}
+          {mode === "haggle" ? (hs ? tl(hs.intro, lang) : "") : ds ? `${tl(ds.thesis, lang)} 🦝` : ""}
         </div>
         {msgs.map((m, i) => (
-          <div key={i} className={`bubble ${m.role === "user" ? "me" : "finni"}`}>{m.content}</div>
+          <div key={i} className={`bubble ${m.role === "user" ? "me" : "finni"}`}>{isolateMath(m.content, lang)}</div>
         ))}
         {busy && <div className="bubble finni muted">…</div>}
         {err && <div className="bubble finni">{err}</div>}

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useGame } from "@/lib/store";
 import { supabaseConfigured } from "@/lib/supabase";
-import { cloudIds, cloudOnline, cloudSignIn, cloudSignOut, cloudSignUp, setPendingFamilyPrefs } from "@/lib/cloud";
+import { cloudIds, cloudOnline, cloudSignInWithOtp, cloudSignOut, cloudSignUp, setPendingFamilyPrefs } from "@/lib/cloud";
 import type { AgeGroup } from "@/lib/analytics";
 import Link from "next/link";
 
@@ -17,7 +17,6 @@ export function CloudAuth() {
   const { s, lang, update } = useGame();
   const L = (ru: string, he: string) => (lang === "he" ? he : ru);
   const [email, setEmail] = useState("");
-  const [pass, setPass] = useState("");
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [on, setOn] = useState(false);
@@ -40,7 +39,7 @@ export function CloudAuth() {
     setMsg("");
     const r = await fn();
     setBusy(false);
-    if (r.needConfirm) setMsg(L("Проверьте почту и подтвердите вход, затем войдите снова.", "בדקו את המייל, אשרו את החשבון ואז היכנסו שוב."));
+    if (r.needConfirm) setMsg(L("Откройте ссылку в письме — вы вернётесь в раздел для родителей.", "פתחו את הקישור במייל — תחזרו לאזור ההורים."));
     else if (r.error) setMsg(r.error);
     else setOn(true);
   };
@@ -72,8 +71,6 @@ export function CloudAuth() {
           </p>
           <label htmlFor="ce">{L("Почта родителя", "המייל של ההורה")}</label>
           <input id="ce" type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <label htmlFor="cpw">{L("Пароль (от 6 символов)", "סיסמה (לפחות 6 תווים)")}</label>
-          <input id="cpw" type="password" autoComplete="current-password" value={pass} onChange={(e) => setPass(e.target.value)} />
           <label htmlFor="agp">{L("Возрастная группа (без даты рождения)", "קבוצת גיל (בלי תאריך לידה)")}</label>
           <select id="agp" value={ageGroup} onChange={(e) => setAgeGroup(e.target.value as AgeGroup)}>
             <option value="7-9">7–9</option>
@@ -96,16 +93,16 @@ export function CloudAuth() {
           </p>
           {msg && <p style={{ color: "#c0392b", fontWeight: 700 }}>{msg}</p>}
           <p className="row" style={{ marginTop: 10, gap: 8 }}>
-            <button className="btn" disabled={busy || !email || pass.length < 6} onClick={() => void go(() => cloudSignIn(email, pass))}>
-              {L("Войти", "כניסה")}
+            <button className="btn" disabled={busy || !email.includes("@")} onClick={() => void go(() => cloudSignInWithOtp(email))}>
+              {L("Войти по ссылке", "כניסה בקישור")}
             </button>
             <button
               className="btn secondary"
-              disabled={busy || !email || pass.length < 6}
+              disabled={busy || !email.includes("@")}
               onClick={() => {
                 update({ analyticsOn: consent, ageGroup, age: ageFromGroup(ageGroup) });
                 setPendingFamilyPrefs({ analyticsOn: consent, ageGroup });
-                void go(() => cloudSignUp(email, pass));
+                void go(() => cloudSignUp(email));
               }}
             >
               {L("Создать семью", "ליצור משפחה")} {s.name ? `(${s.name})` : ""}

@@ -9,6 +9,8 @@ import { Burst } from "@/components/fx";
 import { sfx } from "@/lib/fx";
 import { music } from "@/lib/music";
 import { track } from "@/lib/analytics";
+import { isolateMath } from "@/lib/bidi";
+import { tl } from "@/lib/missions/types";
 
 const MAX_ROUNDS = 3;
 const SECONDS = 45;
@@ -144,8 +146,8 @@ export default function BlitzPage() {
         <h1>{x.h}</h1>
         {phase === "intro" && (
           <div className="card hero">
-            <p className="scenario">{x.intro}</p>
-            <p className="muted">{x.rule}</p>
+            <p className="scenario">{isolateMath(x.intro, lang)}</p>
+            <p className="muted">{isolateMath(x.rule, lang)}</p>
           </div>
         )}
         {phase === "over" && (
@@ -160,7 +162,7 @@ export default function BlitzPage() {
                 <ul style={{ margin: 0, paddingInlineStart: 20 }}>
                   {missed.map((m, k) => (
                     <li key={k} style={{ marginBottom: 6 }}>
-                      <b>{m.q[lang]}</b>: {m.why[lang]}
+                      <b>{tl(m.q, lang)}</b>: {tl(m.why, lang)}
                     </li>
                   ))}
                 </ul>
@@ -198,16 +200,16 @@ export default function BlitzPage() {
       </div>
       <div className="stage k-choice" style={{ minHeight: 140 }}>
         <div className="stage-title" style={{ fontSize: 28, marginTop: 14 }}>
-          {cur?.q[lang]}
+          {cur ? tl(cur.q, lang) : ""}
         </div>
-        {flash && <div className="finni-say">{flash === "yes" ? "✅" : "💡"} {why}</div>}
+        {flash && <div className="finni-say">{flash === "yes" ? "✅" : "💡"} {isolateMath(why, lang)}</div>}
       </div>
       <div className="row" style={{ gap: 10 }}>
         <button className="btn grow" style={{ fontSize: 22, padding: 22 }} onClick={() => answer(0)}>
-          {cur?.l[lang]}
+          {cur ? tl(cur.l, lang) : ""}
         </button>
         <button className="btn secondary grow" style={{ fontSize: 22, padding: 22 }} onClick={() => answer(1)}>
-          {cur?.r[lang]}
+          {cur ? tl(cur.r, lang) : ""}
         </button>
       </div>
     </>

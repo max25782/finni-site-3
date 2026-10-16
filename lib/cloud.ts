@@ -77,18 +77,41 @@ export async function familyEraseCloud(): Promise<string | null> {
   return error ? rpcErr(error) : null;
 }
 
-export async function cloudSignIn(email: string, password: string): Promise<{ error?: string; needConfirm?: boolean }> {
-  const sb = supabase();
-  if (!sb) return { error: "not_configured" };
-  const { error } = await sb.auth.signInWithPassword({ email: email.trim(), password });
-  if (error) return { error: error.message };
-  return {};
+/** Redirect для писем Supabase Auth — только текущий origin (без localhost/env). */
+export function authEmailRedirectTo(path = "/parents"): string {
+  if (typeof window === "undefined") return "";
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${window.location.origin}${p}`;
 }
 
-export async function cloudSignUp(email: string, password: string): Promise<{ error?: string; needConfirm?: boolean }> {
+function parentEmailRedirectOptions() {
+  return { emailRedirectTo: authEmailRedirectTo("/parents") };
+}
+
+export async function cloudSignInWithOtp(email: string): Promise<{ error?: string; needConfirm?: boolean }> {
   const sb = supabase();
   if (!sb) return { error: "not_configured" };
-  const { data, error } = await sb.auth.signUp({ email: email.trim(), password });
+  const { error } = await sb.auth.signInWithOtp({
+    email: email.trim(),
+    options: parentEmailRedirectOptions(),
+  });
+  if (error) return { error: error.message };
+  return { needConfirm: true };
+}
+
+/** Регистрация по magic link: signUp с redirect (пароль не используется — вход только по ссылке). */
+export async function cloudSignUp(email: string): Promise<{ error?: string; needConfirm?: boolean }> {
+  const sb = supabase();
+  if (!sb) return { error: "not_configured" };
+  const secret =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `${crypto.randomUUID()}${crypto.randomUUID()}`
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  const { data, error } = await sb.auth.signUp({
+    email: email.trim(),
+    password: secret,
+    options: parentEmailRedirectOptions(),
+  });
   if (error) return { error: error.message };
   if (!data.session) return { needConfirm: true };
   return {};

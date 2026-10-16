@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useGame } from "@/lib/store";
+import { isolateMath } from "@/lib/bidi";
 import { todayKey } from "@/lib/game";
 import { careKind, careReply, containsPrivateData, SAFETY_REPLY, type CareKind } from "@/lib/safety";
 import { voiceSupported } from "@/lib/voice";
@@ -145,7 +146,7 @@ export default function ChatPage() {
         <div className="bubble finni">{t("chatGreeting")}</div>
         {msgs.map((m, i) => (
           <div key={i} className={`bubble ${m.role === "user" ? "me" : "finni"}`}>
-            {m.content}
+            {isolateMath(m.content, lang)}
           </div>
         ))}
         {busy && <div className="bubble finni muted">{t("thinking")}</div>}
